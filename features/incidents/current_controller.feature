@@ -63,3 +63,25 @@ Feature: Execute only fixed God scenarios with durable recovery state
     And final reset persistence fails after node recovery
     Then the response is an error and the publicly visible generation has not advanced
     And new mutations require reconciliation
+
+  Scenario: Restart never labels loaded active state as currently verified
+    When God applies the core-link scenario with a fresh request key
+    And the controller process restarts
+    Then persisted fault identity is retained but verified is false until explicit recovery
+
+  Scenario: Recover conservatively when reset state reaches disk but generation publication fails
+    When God applies the core-link scenario with a fresh request key
+    And reset persistence fails between state and generation replacement and further writes fail
+    And the controller process restarts
+    Then restart requires reconciliation at the last committed generation without replaying reset success
+
+  Scenario: Failed baseline result persistence cannot create an in-memory successful retry
+    When God resets with a different request key
+    And a baseline reset result cannot be persisted
+    Then retrying that request key must attempt persistence rather than replay uncommitted success
+
+  Scenario: Missing generation publication is unverified even if baseline state survived
+    When God resets with a different request key
+    And the published generation file disappears
+    And the controller process restarts
+    Then it exposes no verified baseline and retains no replayable success

@@ -239,3 +239,78 @@ def persist_failed(c):
 @then("new mutations require reconciliation")
 def requires_reconciliation(c):
     assert c.controller.get_state()["state"] == "reconciliation_required"
+
+
+@then("persisted fault identity is retained but verified is false until explicit recovery")
+def restart_not_verified(c):
+    state = c.controller.get_state()
+    assert (
+        state["state"] == "reconciliation_required"
+        and state["scenario_id"] == "core-link-failure"
+        and state["verified"] is False
+    ), state
+
+
+@when("reset persistence fails between state and generation replacement and further writes fail")
+def partial_publication(c):
+    import os
+
+    original = os.replace
+    failed = False
+
+    def replace(source, target):
+        nonlocal failed
+        if failed:
+            raise OSError("storage unavailable")
+        if str(target).endswith("generation.json") and c.controller.state["generation"] == 2:
+            failed = True
+            raise OSError("generation publication failed")
+        return original(source, target)
+
+    with patch("minicore_mcp.faults.os.replace", side_effect=replace):
+        c.partial_result = asyncio.run(c.controller.reset("partial-reset-key", "god"))
+    assert c.partial_result["error_code"], c.partial_result
+
+
+@then(
+    "restart requires reconciliation at the last committed generation without replaying reset success"
+)
+def partial_restart(c):
+    state = c.controller.get_state()
+    assert (
+        state["state"] == "reconciliation_required"
+        and state["verified"] is False
+        and state["generation"] == 1
+    ), state
+    replay = c.controller.replay("reset", None, "partial-reset-key")
+    assert replay is None or replay["error_code"], replay
+    assert asyncio.run(c.controller.reset("recover-partial-key", "god"))["data"]["generation"] == 2
+
+
+@when("a baseline reset result cannot be persisted")
+def baseline_persist_failure(c):
+    with patch.object(c.controller, "save", side_effect=OSError("disk full")):
+        c.baseline_failed = asyncio.run(c.controller.reset("baseline-failed-key", "god"))
+    assert c.baseline_failed["error_code"] == "persistence_failed"
+
+
+@then("retrying that request key must attempt persistence rather than replay uncommitted success")
+def no_volatile_replay(c):
+    with patch.object(c.controller, "save", side_effect=OSError("disk still full")) as save:
+        result = asyncio.run(c.controller.reset("baseline-failed-key", "god"))
+    assert save.called and result["error_code"] == "persistence_failed", result
+
+
+@when("the published generation file disappears")
+def missing_generation(c):
+    (c.control_dir / "generation.json").unlink()
+
+
+@then("it exposes no verified baseline and retains no replayable success")
+def missing_generation_unverified(c):
+    state = c.controller.get_state()
+    assert (
+        state["state"] == "reconciliation_required"
+        and state["verified"] is False
+        and not c.controller.state["results"]
+    ), state

@@ -64,10 +64,30 @@ class FaultController:
                     raise ValueError()
                 self.state = loaded
                 if self.state["state"] != "baseline":
-                    self.state["state"] = "reconciliation_required"
+                    self.state.update(state="reconciliation_required", verified=False)
+                # A reset is not committed to observers until both durable files agree.
+                published = json.loads((directory / "generation.json").read_text())
+                committed = published.get("generation")
+                if type(committed) is not int or committed < 1:
+                    raise ValueError()
+                if committed != self.state["generation"]:
+                    self.state.update(
+                        state="reconciliation_required",
+                        verified=False,
+                        generation=min(committed, self.state["generation"]),
+                        scenario_id=None,
+                        results={},
+                        error_code="incomplete_persistence",
+                    )
             except (ValueError, OSError, KeyError, TypeError):
-                self.state["state"] = "reconciliation_required"
-                self.state["error_code"] = "corrupt_state"
+                self.state.update(
+                    state="reconciliation_required",
+                    verified=False,
+                    scenario_id=None,
+                    results={},
+                    audit=[],
+                    error_code="corrupt_state",
+                )
         self.topology.inventory["generation"] = self.state["generation"]
 
     def get_state(self):
@@ -84,7 +104,10 @@ class FaultController:
         os.chmod(temp, 0o600)
         os.replace(temp, file)
         generation = self.directory / "generation.tmp"
-        generation.write_text(json.dumps({"generation": self.state["generation"]}))
+        with generation.open("w") as handle:
+            json.dump({"generation": self.state["generation"]}, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
         os.chmod(generation, 0o644)
         os.replace(generation, self.directory / "generation.json")
         directory = os.open(self.directory, os.O_DIRECTORY)
@@ -105,6 +128,8 @@ class FaultController:
         return copy.deepcopy(previous["response"])
 
     def record(self, operation, scenario, key, principal, error):
+        previous_results = copy.deepcopy(self.state["results"])
+        previous_audit = copy.deepcopy(self.state["audit"])
         self.state["audit"].append(
             {
                 "at": datetime.now(timezone.utc).isoformat(),
@@ -125,7 +150,12 @@ class FaultController:
         # 128 retained idempotency records. Keys outside this window are not retry-safe.
         while len(self.state["results"]) > 128:
             self.state["results"].pop(next(iter(self.state["results"])))
-        self.save()
+        try:
+            self.save()
+        except OSError:
+            self.state["results"] = previous_results
+            self.state["audit"] = previous_audit
+            raise
         return result
 
     async def apply(self, scenario, key, principal):

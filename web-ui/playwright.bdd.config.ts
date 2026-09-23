@@ -5,6 +5,7 @@ export default defineConfig({
     featuresRoot: "..",
     features: [
       "../features/visualization/current_workbench.feature",
+      "../features/visualization/browser_matrix.feature",
       "../features/operations/current_host_tools.feature",
       "../features/operations/current_log_collector.feature",
       "../features/integration/initial_management.feature",

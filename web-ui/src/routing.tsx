@@ -1,52 +1,52 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { TopologySnapshot } from "./types";
 
-export type RoutingLayer = "Physical" | "AS" | "OSPF" | "BGP" | "Prefix";
-type RecordValue = Record<string, unknown>;
-type NodeEvidence = {
-  node_id: string;
-  generation: number;
-  collected_at: string;
-  source: string;
-  error_code: string | null;
-  truncated: boolean;
-  data: {
-    prefix: string;
-    bgp: RecordValue;
-    rib: RecordValue;
-    fib: RecordValue[];
-    bgp_peers: RecordValue;
-    ospf_neighbors: RecordValue;
-    advertised: { peer: string; present: boolean; source: string }[];
-    received: { status: string };
-  } | null;
-};
-type RoutingEvidence = {
-  generation: number;
-  status: string;
-  data: {
-    prefix: string;
-    nodes: NodeEvidence[];
-    collected: number;
-    atomic: false;
-  };
-};
+import {
+  compareRouting,
+  complete,
+  freshness as sampleFreshness,
+  protocolFacts,
+  validateRouting,
+  type RoutingEvidence,
+  type NodeEvidence,
+  type RoutingLayer,
+  type ProtocolFact,
+} from "./routing-model";
+export type { RoutingLayer } from "./routing-model";
 
 export function RoutingLayers({
   snapshot,
   layer,
   onLayer,
   epoch,
+  onFacts,
 }: {
   snapshot: TopologySnapshot;
   layer: RoutingLayer;
   onLayer: (layer: RoutingLayer) => void;
   epoch: string;
+  onFacts: (facts: ProtocolFact[]) => void;
 }) {
   const [prefix, setPrefix] = useState(
     snapshot.prefixes?.[0] ?? "10.200.8.0/29",
   );
-  const [evidence, setEvidence] = useState<RoutingEvidence | null>(null);
+  const [storedEvidence, setEvidence] = useState<RoutingEvidence | null>(null);
+  const [previous, setPrevious] = useState<RoutingEvidence | null>(null);
+  const lastGood = useRef<RoutingEvidence | null>(null);
+  const scope = useRef("");
+  const declaration = JSON.stringify([
+    snapshot.nodes.map((n) => [n.id, n.router_id, n.asn, n.ospf_areas]),
+    snapshot.peerings,
+    snapshot.links.map((l) => [
+      l.id,
+      l.source,
+      l.target,
+      l.interfaces,
+      l.ospf_area,
+    ]),
+  ]);
+  const scopeKey = `${epoch}:${snapshot.generation}:${prefix}:${declaration}`;
+  const evidence = scope.current === scopeKey ? storedEvidence : null;
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [clock, setClock] = useState(Date.now());
@@ -57,7 +57,13 @@ export function RoutingLayers({
   useEffect(() => {
     let disposed = false;
     const abort = new AbortController();
-    setEvidence(null);
+    const nextScope = scopeKey;
+    if (scope.current !== nextScope) {
+      scope.current = nextScope;
+      lastGood.current = null;
+      setPrevious(null);
+      setEvidence(null);
+    }
     setError("");
     if (!["BGP", "OSPF", "Prefix"].includes(layer)) return;
     void (async () => {
@@ -68,15 +74,14 @@ export function RoutingLayers({
         );
         if (!response.ok)
           throw Error(`Routing request failed (${response.status})`);
-        const value = (await response.json()) as RoutingEvidence;
-        if (
-          value.generation !== snapshot.generation ||
-          value.data?.prefix !== prefix ||
-          !Array.isArray(value.data.nodes) ||
-          value.data.nodes.length !== 6
-        )
-          throw Error("Invalid routing snapshot");
-        if (!disposed) setEvidence(value);
+        const value = validateRouting(await response.json(), snapshot, prefix);
+        if (!disposed) {
+          if (complete(value)) {
+            setPrevious(lastGood.current);
+            lastGood.current = value;
+          }
+          setEvidence(value);
+        }
       } catch (e) {
         if (!disposed)
           setError(e instanceof Error ? e.message : "Routing unavailable");
@@ -86,26 +91,21 @@ export function RoutingLayers({
       disposed = true;
       abort.abort();
     };
-  }, [prefix, snapshot.generation, refresh, layer, epoch]);
+  }, [scopeKey, refresh, layer]);
   const routers = snapshot.nodes.filter((n) => n.kind === "router");
   const node = (id: string) =>
     evidence?.data.nodes.find((n) => n.node_id === id);
   const freshness = (n?: NodeEvidence) =>
-    !n
-      ? "not collected"
-      : n.generation !== snapshot.generation
-        ? "prior generation"
-        : clock - Date.parse(n.collected_at) > 30000
-          ? "stale"
-          : "fresh";
-  const bgpState = (id: string, address: string) => {
-    const n = node(id);
-    if (!n?.data || n.error_code) return n?.error_code ?? "not collected";
-    const family = n.data.bgp_peers.ipv4Unicast as
-      | { peers?: Record<string, { state?: string }> }
-      | undefined;
-    return `${family?.peers?.[address]?.state ?? "unknown"} · ${freshness(n)}`;
-  };
+    sampleFreshness(n, snapshot.generation, clock);
+  const facts = protocolFacts(snapshot, error ? null : evidence, layer, clock);
+  useEffect(() => {
+    onFacts(facts);
+  }, [snapshot, evidence, error, layer, clock, onFacts]);
+  useEffect(() => () => onFacts([]), [onFacts]);
+  const changes = error ? null : compareRouting(previous, evidence, clock);
+  const times =
+    evidence?.data.nodes.map((n) => Date.parse(n.collected_at)) ?? [];
+  const skew = times.length ? Math.max(...times) - Math.min(...times) : 0;
   return (
     <section class="routing-layers" aria-label="Routing layers">
       <nav aria-label="Network layers">
@@ -174,25 +174,27 @@ export function RoutingLayers({
           </details>
         </>
       )}
-      {layer === "BGP" && (
+      {["BGP", "OSPF"].includes(layer) && (
         <>
-          <h2>Declared logical sessions · not physical links</h2>
-          <table aria-label="BGP endpoint observations">
+          <h2>
+            {layer === "BGP"
+              ? "Declared logical sessions · not physical links"
+              : "OSPF interface endpoint observations"}
+          </h2>
+          <table aria-label={`${layer} endpoint observations`}>
             <thead>
               <tr>
                 <th>Relationship</th>
-                <th>Source observation</th>
-                <th>Target observation</th>
+                <th>Independent endpoint observations</th>
               </tr>
             </thead>
             <tbody>
-              {snapshot.peerings?.map((p) => (
+              {facts.map((p) => (
                 <tr>
                   <th>
-                    {p.source} ↔ {p.target} · {p.kind}
+                    {p.source} ↔ {p.target}
                   </th>
-                  <td>{bgpState(p.source, p.target_address)}</td>
-                  <td>{bgpState(p.target, p.source_address)}</td>
+                  <td>{p.text}</td>
                 </tr>
               ))}
             </tbody>
@@ -218,10 +220,42 @@ export function RoutingLayers({
           <span role="status">
             {error ||
               (evidence
-                ? `${evidence.status} · ${evidence.data.collected}/6 collected`
+                ? `${evidence.status} · ${evidence.data.collected}/${routers.length} collected`
                 : "Collecting…")}
           </span>
         </div>
+      )}
+      {["BGP", "OSPF", "Prefix"].includes(layer) && (
+        <p>
+          Collection skew: {skew} ms ·{" "}
+          {error
+            ? "Refresh failed; retained sample timestamp unchanged"
+            : "No atomic cross-node snapshot"}
+        </p>
+      )}
+      {layer === "Prefix" && (
+        <section aria-label="Routing comparison">
+          <h3>Two-sample comparison</h3>
+          {changes === null ? (
+            <p>
+              {error || (evidence && !complete(evidence))
+                ? "Comparison unavailable — failed or partial refresh is not withdrawal"
+                : "Need two complete fresh samples in this prefix and generation"}
+            </p>
+          ) : changes.length ? (
+            <ul>
+              {changes.map((change) => (
+                <li>{change}</li>
+              ))}
+            </ul>
+          ) : (
+            <p>No observed changes</p>
+          )}
+          <small>
+            At most two successful samples retained. Stale, truncated or
+            cross-generation comparisons are suppressed.
+          </small>
+        </section>
       )}
       {layer === "Prefix" && (
         <>

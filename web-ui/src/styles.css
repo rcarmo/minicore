@@ -442,3 +442,22 @@ aside nav {
   color: #e0e8f2;
   padding: 0.5rem;
 }
+
+.protocol-label {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  background: #121d2de0;
+  border: 1px solid #476273;
+  border-radius: 3px;
+  padding: 2px 4px;
+  color: #c1d2da;
+  font-size: 9px;
+  max-width: 190px;
+  text-align: center;
+}
+.routing-layers button,
+.routing-layers select {
+  min-height: 44px;
+}

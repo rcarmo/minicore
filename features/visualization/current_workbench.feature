@@ -62,3 +62,31 @@ Feature: Current network workbench interactions
 
   Scenario: A prefix change cancels the previous routing projection
     Then a late first-prefix response cannot replace the second prefix evidence
+
+  Scenario: Compare only two complete fresh routing samples within one scope
+    Then routing comparison shows observed withdrawals but never converts a failed refresh into one
+
+  Scenario: Routing comparison is reset with its generation
+    Then a new generation clears earlier routing comparisons without moving node selection
+
+  Scenario: Logical session graph labels agree with endpoint tables
+    Then BGP and OSPF graph labels match the same endpoint facts shown in their tables
+
+  Scenario: God projection stays local to one tab and is cleared on revocation
+    Then God annotations never appear in an Agent tab and revocation clears the privileged tab
+
+  Scenario Outline: Unsafe routing samples cannot drive comparison or graph health
+    Then a "<condition>" routing sample cannot claim an observed withdrawal or healthy session
+    Examples:
+      | condition  |
+      | partial    |
+      | stale      |
+      | truncated  |
+      | duplicate  |
+      | bad-time   |
+
+  Scenario: Repeated routing layer switches stay bounded at tablet size
+    Then keyboard and touch-sized routing controls retain selection without accumulating graph labels
+
+  Scenario: Changed declared peer metadata invalidates existing routing facts
+    Then changed peer addresses within a generation clear routing evidence until recollected

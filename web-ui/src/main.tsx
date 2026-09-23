@@ -1,5 +1,6 @@
 import { render } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import type { ProtocolFact } from "./routing-model";
 import { NetworkScene } from "./graph";
 import {
   ControllerState,
@@ -42,6 +43,10 @@ function App() {
   useEffect(() => {
     scene.current?.setLayer(layer);
   }, [layer, snapshot]);
+  const updateFacts = useCallback(
+    (facts: ProtocolFact[]) => scene.current?.setProtocolFacts(facts),
+    [],
+  );
   const selected = snapshot?.nodes.find((n) => n.id === selectedId);
 
   function select(id: string | null) {
@@ -276,11 +281,12 @@ function App() {
       </section>
       {snapshot && (
         <RoutingLayers
-          key={view}
+          key={`${view}:${snapshot.generation}`}
           snapshot={snapshot}
           layer={layer}
           onLayer={setLayer}
           epoch={view}
+          onFacts={updateFacts}
         />
       )}
       <footer>

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { RoutingLayer } from "./routing";
+import type { RoutingLayer, ProtocolFact } from "./routing-model";
 import type { TopologyNode, TopologySnapshot } from "./types";
 
 const roleColours: Record<TopologyNode["role"], number> = {
@@ -18,6 +18,11 @@ export class NetworkScene {
   private readonly devices = new THREE.Group();
   private readonly links = new THREE.Group();
   private readonly overlay = new THREE.Group();
+  private protocolLabels: {
+    element: HTMLSpanElement;
+    position: THREE.Vector3;
+  }[] = [];
+  private facts: ProtocolFact[] = [];
   private layer: RoutingLayer = "Physical";
   private readonly activity = new THREE.Group();
   private activeIds = new Set<string>();
@@ -165,7 +170,14 @@ export class NetworkScene {
     this.setActivity([...this.activeIds]);
     this.setLayer(this.layer);
   }
+  setProtocolFacts(facts: ProtocolFact[]) {
+    if (JSON.stringify(facts) === JSON.stringify(this.facts)) return;
+    this.facts = facts;
+    this.setLayer(this.layer);
+  }
   setLayer(layer: RoutingLayer) {
+    this.protocolLabels.forEach((label) => label.element.remove());
+    this.protocolLabels = [];
     this.layer = layer;
     for (const child of [...this.overlay.children]) {
       const mesh = child as THREE.Mesh;
@@ -200,8 +212,10 @@ export class NetworkScene {
         this.overlay.add(plane);
       }
     }
-    if (layer === "BGP")
-      for (const p of this.snapshot.peerings ?? []) {
+    if (layer === "BGP" || layer === "OSPF")
+      for (const p of layer === "BGP"
+        ? (this.snapshot.peerings ?? [])
+        : this.snapshot.links.filter((l) => l.ospf_area === "0")) {
         const a = byId.get(p.source),
           b = byId.get(p.target);
         if (!a || !b) continue;
@@ -213,13 +227,26 @@ export class NetworkScene {
         const line = new THREE.Line(
           new THREE.BufferGeometry().setFromPoints(curve.getPoints(32)),
           new THREE.LineDashedMaterial({
-            color: p.kind === "iBGP" ? 0xaaa2cd : 0xddac67,
+            color:
+              this.facts.find((f) => f.id === p.id)?.state === "up"
+                ? 0x62b1a0
+                : this.facts.find((f) => f.id === p.id)?.state === "conflict"
+                  ? 0xe0ad6a
+                  : 0xaaa2cd,
             dashSize: 0.12,
             gapSize: 0.09,
           }),
         );
         line.computeLineDistances();
         this.overlay.add(line);
+        const fact = this.facts.find((f) => f.id === p.id);
+        if (fact) {
+          const element = document.createElement("span");
+          element.className = "protocol-label";
+          element.textContent = fact.text;
+          this.canvas.parentElement?.appendChild(element);
+          this.protocolLabels.push({ element, position: curve.getPoint(0.5) });
+        }
       }
   }
   setActivity(ids: string[]) {
@@ -316,6 +343,12 @@ export class NetworkScene {
   private updateLabels() {
     if (!this.snapshot) return;
     const r = this.canvas.getBoundingClientRect();
+    for (const label of this.protocolLabels) {
+      const p = label.position.clone().project(this.camera);
+      label.element.hidden = p.z < -1 || p.z > 1;
+      label.element.style.left = `${((p.x + 1) * r.width) / 2}px`;
+      label.element.style.top = `${((1 - p.y) * r.height) / 2}px`;
+    }
     for (const n of this.snapshot.nodes) {
       const el = this.labels.get(n.id);
       if (!el) continue;
@@ -368,6 +401,8 @@ export class NetworkScene {
       });
       group.clear();
     }
+    this.protocolLabels.forEach((l) => l.element.remove());
+    this.protocolLabels = [];
     this.labels.forEach((v) => v.remove());
     this.labels.clear();
     this.nodeMeshes = [];

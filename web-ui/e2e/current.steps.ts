@@ -500,3 +500,402 @@ Then(
     await expect(page.getByLabel("One prefix")).toHaveValue("10.200.9.0/29");
   },
 );
+
+Then(
+  "routing comparison shows observed withdrawals but never converts a failed refresh into one",
+  async ({ page }) => {
+    const fixture = await routingFixture(page);
+    let call = 0;
+    await page.route("**/api/v1/routing?*", async (route) => {
+      call++;
+      if (call === 3) {
+        await route.fulfill({
+          status: 503,
+          json: { error_code: "execution_timeout" },
+        });
+        return;
+      }
+      const value = fixture("10.200.8.0/29");
+      for (const node of value.data.nodes) {
+        node.collected_at = new Date().toISOString();
+        if (call === 1)
+          node.data.bgp = {
+            paths: [{ valid: true, bestpath: { overall: true } }],
+          };
+      }
+      await route.fulfill({ json: value });
+    });
+    await page.goto("/#p1");
+    await page.getByRole("button", { name: "Prefix", exact: true }).click();
+    await expect(
+      page.getByRole("region", { name: "Routing layers" }),
+    ).toContainText("ok · 6/6 collected");
+    await expect(
+      page.getByRole("region", { name: "Routing comparison" }),
+    ).toContainText("Need two complete fresh samples");
+    await page
+      .getByRole("button", { name: "Collect routing evidence", exact: true })
+      .click();
+    await expect(
+      page.getByRole("region", { name: "Routing comparison" }),
+    ).toContainText("BGP: withdrawn");
+    const stamp = await page
+      .getByRole("table", { name: "Exact prefix evidence" })
+      .locator("tbody th")
+      .first()
+      .textContent();
+    await page
+      .getByRole("button", { name: "Collect routing evidence", exact: true })
+      .click();
+    await expect(
+      page.getByRole("region", { name: "Routing comparison" }),
+    ).toContainText("Comparison unavailable");
+    await expect(
+      page
+        .getByRole("table", { name: "Exact prefix evidence" })
+        .locator("tbody th")
+        .first(),
+    ).toHaveText(stamp!);
+    await expect(
+      page.getByRole("region", { name: "Routing comparison" }),
+    ).not.toContainText("withdrawn");
+    await page
+      .getByRole("button", { name: "Collect routing evidence", exact: true })
+      .click();
+    await expect(
+      page.getByRole("region", { name: "Routing comparison" }),
+    ).toContainText("No observed changes");
+    await expect(
+      page.getByRole("region", { name: "Routing comparison" }),
+    ).not.toContainText("withdrawn");
+  },
+);
+
+Then(
+  "a new generation clears earlier routing comparisons without moving node selection",
+  async ({ page }) => {
+    const fixture = await routingFixture(page);
+    const topology = await (await page.request.get("/api/v1/topology")).json();
+    let generation = topology.generation;
+    await page.route("**/api/v1/topology?*", (r) =>
+      r.fulfill({
+        json: { ...topology, generation, revision: `gen-${generation}` },
+      }),
+    );
+    await page.route("**/api/v1/routing?*", (r) => {
+      const value = fixture("10.200.8.0/29");
+      value.generation = generation;
+      value.data.nodes.forEach((n: any) => {
+        n.generation = generation;
+        n.collected_at = new Date().toISOString();
+      });
+      return r.fulfill({ json: value });
+    });
+    await page.goto("/#p1");
+    await page.getByRole("button", { name: "Prefix", exact: true }).click();
+    await expect(
+      page.getByRole("region", { name: "Routing layers" }),
+    ).toContainText("ok · 6/6 collected");
+    await page
+      .getByRole("button", { name: "Collect routing evidence", exact: true })
+      .click();
+    await expect(
+      page.getByRole("region", { name: "Routing comparison" }),
+    ).toContainText("No observed changes");
+    generation++;
+    await page.evaluate(() =>
+      document.dispatchEvent(new Event("visibilitychange")),
+    );
+    await expect(
+      page.getByRole("region", { name: "Routing comparison" }),
+    ).toContainText("Need two complete fresh samples");
+    await expect(
+      page.getByRole("heading", { name: "P1", exact: true }),
+    ).toBeVisible();
+  },
+);
+
+Then(
+  "BGP and OSPF graph labels match the same endpoint facts shown in their tables",
+  async ({ page }) => {
+    const fixture = await routingFixture(page);
+    await page.route("**/api/v1/routing?*", (r) => {
+      const value = fixture("10.200.8.0/29");
+      value.data.nodes.forEach((n: any) => {
+        n.collected_at = new Date().toISOString();
+        n.data.ospf_neighbors = {
+          "10.254.0.2": [{ ifaceName: "to-p2:10.200.1.2", nbrState: "Full/-" }],
+        };
+      });
+      return r.fulfill({ json: value });
+    });
+    await page.goto("/#p1");
+    for (const layer of ["BGP", "OSPF"]) {
+      await page.getByRole("button", { name: layer, exact: true }).click();
+      const labels = page.locator(".protocol-label");
+      await expect(labels).toHaveCount(layer === "BGP" ? 8 : 5);
+      const table = page.getByRole("table", {
+        name: `${layer} endpoint observations`,
+      });
+      await expect(table).toContainText(
+        layer === "BGP" ? "Established" : "Full/-",
+      );
+      for (const text of await labels.allTextContents())
+        await expect(table).toContainText(text);
+    }
+    await expect(page.locator(".graph-label")).toHaveCount(8);
+  },
+);
+
+Then(
+  "God annotations never appear in an Agent tab and revocation clears the privileged tab",
+  async ({ page, context }) => {
+    const topology = await (await page.request.get("/api/v1/topology")).json();
+    let revoked = false;
+    await context.route("**/api/v1/view", (r) =>
+      r.fulfill({ json: { can_god: !revoked } }),
+    );
+    await context.route("**/api/v1/topology?*", (r) => {
+      const god = new URL(r.request().url()).searchParams.get("view") === "god";
+      if (god && revoked)
+        return r.fulfill({
+          status: 403,
+          json: { error_code: "authorization_denied" },
+        });
+      return r.fulfill({
+        json: {
+          ...topology,
+          view: god ? "god" : "agent",
+          ...(god
+            ? {
+                controller: {
+                  state: "active",
+                  scenario_id: "test-fault",
+                  node_id: "p1",
+                  interface: "to-p2",
+                  verified: true,
+                },
+              }
+            : {}),
+        },
+      });
+    });
+    const agent = await context.newPage();
+    await page.goto("/");
+    await agent.goto("/");
+    await page.getByRole("checkbox", { name: /God mode/ }).check();
+    await expect(page.getByLabel("Controller ground truth")).toContainText(
+      "test-fault",
+    );
+    await expect(
+      agent.getByRole("checkbox", { name: /God mode/ }),
+    ).not.toBeChecked();
+    await expect(agent.getByLabel("Controller ground truth")).toHaveCount(0);
+    revoked = true;
+    await page.evaluate(() =>
+      document.dispatchEvent(new Event("visibilitychange")),
+    );
+    await expect(page.getByLabel("Controller ground truth")).toHaveCount(0);
+    await expect(
+      page.getByRole("checkbox", { name: /God mode/ }),
+    ).not.toBeChecked();
+    await page.unrouteAll({ behavior: "wait" });
+    await agent.close();
+  },
+);
+
+Then(
+  "a {string} routing sample cannot claim an observed withdrawal or healthy session",
+  async ({ page }, condition: string) => {
+    const fixture = await routingFixture(page);
+    let call = 0;
+    await page.route("**/api/v1/routing?*", (r) => {
+      const v = fixture("10.200.8.0/29");
+      v.data.nodes.forEach(
+        (n: any) => (n.collected_at = new Date().toISOString()),
+      );
+      if (++call > 1) {
+        if (condition === "partial") {
+          v.status = "partial";
+          v.data.nodes[0].error_code = "execution_timeout";
+          v.data.nodes[0].data = null;
+        }
+        if (condition === "stale")
+          v.data.nodes.forEach(
+            (n: any) =>
+              (n.collected_at = new Date(Date.now() - 60000).toISOString()),
+          );
+        if (condition === "truncated") v.data.nodes[0].truncated = true;
+        if (condition === "duplicate")
+          v.data.nodes[0].node_id = v.data.nodes[1].node_id;
+        if (condition === "bad-time")
+          v.data.nodes[0].collected_at = "invalid-date";
+      }
+      return r.fulfill({ json: v });
+    });
+    await page.goto("/#p1");
+    await page.getByRole("button", { name: "Prefix", exact: true }).click();
+    await expect(
+      page.getByRole("region", { name: "Routing layers" }),
+    ).toContainText("ok · 6/6 collected");
+    await page
+      .getByRole("button", { name: "Collect routing evidence", exact: true })
+      .click();
+    await expect(
+      page.getByRole("region", { name: "Routing comparison" }),
+    ).not.toContainText("No observed changes");
+    await expect(
+      page.getByRole("region", { name: "Routing comparison" }),
+    ).not.toContainText("withdrawn");
+    await page.getByRole("button", { name: "BGP", exact: true }).click();
+    // A failed node must not erase independently collected facts on other nodes.
+    await expect(
+      page
+        .getByRole("table", { name: "BGP endpoint observations" })
+        .getByRole("row")
+        .filter({ hasText: "p1 ↔ p2" }),
+    ).not.toContainText("Established · fresh");
+  },
+);
+Then(
+  "keyboard and touch-sized routing controls retain selection without accumulating graph labels",
+  async ({ page }) => {
+    const fixture = await routingFixture(page);
+    await page.route("**/api/v1/routing?*", (r) =>
+      r.fulfill({ json: fixture("10.200.8.0/29") }),
+    );
+    await page.setViewportSize({ width: 820, height: 1180 });
+    await page.goto("/#p1");
+    for (let cycle = 0; cycle < 4; cycle++)
+      for (const name of ["BGP", "OSPF", "AS", "Prefix"]) {
+        const button = page.getByRole("button", { name, exact: true });
+        await button.focus();
+        await page.keyboard.press("Enter");
+        await expect(button).toHaveAttribute("aria-pressed", "true");
+        await expect(
+          page.getByRole("heading", { name: "P1", exact: true }),
+        ).toBeVisible();
+        await expect(page.locator(".graph-label")).toHaveCount(8);
+        await expect(page.locator(".protocol-label")).toHaveCount(
+          name === "BGP" ? 8 : name === "OSPF" ? 5 : 0,
+        );
+        const box = await button.boundingBox();
+        expect(box!.height).toBeGreaterThanOrEqual(32);
+      }
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  },
+);
+
+Then(
+  "changed peer addresses within a generation clear routing evidence until recollected",
+  async ({ page }) => {
+    const fixture = await routingFixture(page);
+    const topology = await (await page.request.get("/api/v1/topology")).json();
+    let changed = false;
+    let reads = 0;
+    await page.route("**/api/v1/topology?*", (r) =>
+      r.fulfill({
+        json: {
+          ...topology,
+          revision: changed ? "changed-peers" : topology.revision,
+          peerings: topology.peerings.map((p: any) =>
+            changed ? { ...p, target_address: "192.0.2.1" } : p,
+          ),
+        },
+      }),
+    );
+    await page.route("**/api/v1/routing?*", async (r) => {
+      reads++;
+      if (changed) await new Promise((resolve) => setTimeout(resolve, 1200));
+      return r.fulfill({ json: fixture("10.200.8.0/29") });
+    });
+    await page.goto("/");
+    await page.getByRole("button", { name: "BGP", exact: true }).click();
+    await expect(
+      page.getByRole("table", { name: "BGP endpoint observations" }),
+    ).toContainText("Established");
+    changed = true;
+    await page.evaluate(() =>
+      document.dispatchEvent(new Event("visibilitychange")),
+    );
+    await expect.poll(() => reads).toBeGreaterThan(1);
+    await expect(
+      page.getByRole("table", { name: "BGP endpoint observations" }),
+    ).toContainText("not collected");
+    await page.unrouteAll({ behavior: "wait" });
+  },
+);
+
+Then(
+  "accessible node controls and routing comparisons work without relying on WebGL",
+  async ({ page }) => {
+    const fixture = await routingFixture(page);
+    await page.route("**/api/v1/routing?*", (r) => {
+      const v = fixture("10.200.8.0/29");
+      v.data.nodes.forEach(
+        (n: any) => (n.collected_at = new Date().toISOString()),
+      );
+      return r.fulfill({ json: v });
+    });
+    await page.addInitScript(() => {
+      const original = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (
+        type: any,
+        ...args: any[]
+      ) {
+        if (type === "webgl2") return null;
+        return original.apply(this, [type, ...args] as any);
+      } as any;
+    });
+    await page.setViewportSize({ width: 820, height: 1180 });
+    await page.goto("/");
+    await expect(page.getByRole("alert")).toContainText("WebGL2 unavailable");
+    await page
+      .locator(".node-list")
+      .getByRole("button", { name: "P1", exact: true })
+      .focus();
+    await page.keyboard.press("Enter");
+    await expect(
+      page.getByRole("heading", { name: "P1", exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Configuration", exact: true })
+      .click();
+    await page.getByRole("button", { name: "frr.conf", exact: true }).click();
+    await expect(page.getByLabel("Configuration file contents")).toContainText(
+      "router bgp 65000",
+    );
+    for (const layer of ["AS", "OSPF", "BGP", "Prefix"]) {
+      const button = page.getByRole("button", { name: layer, exact: true });
+      await button.focus();
+      await page.keyboard.press("Enter");
+      await expect(button).toHaveAttribute("aria-pressed", "true");
+      await expect(
+        page.getByRole("heading", { name: "P1", exact: true }),
+      ).toBeVisible();
+    }
+    await expect(
+      page
+        .getByRole("table", { name: "Exact prefix evidence" })
+        .locator("tbody tr"),
+    ).toHaveCount(6);
+    await expect(
+      page.getByRole("region", { name: "Routing layers" }),
+    ).toContainText("ok · 6/6 collected");
+    await page
+      .getByRole("button", { name: "Collect routing evidence", exact: true })
+      .click();
+    await expect(
+      page.getByRole("region", { name: "Routing comparison" }),
+    ).toContainText("No observed changes");
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  },
+);

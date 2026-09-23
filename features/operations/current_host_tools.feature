@@ -40,9 +40,6 @@ Feature: Generate and manage the declared containers from the host only
     Then it fails without calling Docker
     Examples:
       | action | node  |
-      | start  | p1    |
-      | up     | p1    |
-      | restart| p1    |
       | stop   | alien |
       | exec   | p1    |
 
@@ -63,3 +60,13 @@ Feature: Generate and manage the declared containers from the host only
 
   Scenario: Reject a misleading acceptance report
     Then a passing report with an outline renamed to another behavior fails the acceptance gate
+
+  Scenario: Use the reviewed plain-IP router image for normal inventory-bound startup
+    When the canonical deployment is generated twice
+    Then router services build the reviewed image without SYS_ADMIN and check every required daemon
+    And each node mounts its own declared configuration files
+
+  Scenario: Start an inventoried node without the obsolete investigation flag
+    Given a recording Docker executable instead of a real daemon
+    When the host helper requests "up" for "p1" without local investigation
+    Then it passes fixed Compose arguments for "up" and p1 only

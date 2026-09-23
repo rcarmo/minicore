@@ -116,8 +116,7 @@ export async function loadTopology(): Promise<Topology> {
   }
   return t;
 }
-const routerImage =
-  "quay.io/frrouting/frr:10.4.1@sha256:f1dd8182ca8ebd76421378702b95d1553fd7285d63db170640eefeb6f989c9dd";
+const routerImage = "minicore-router:10.4.1-plain";
 const endpointImage =
   "alpine:3.22.1@sha256:eafc1edb577d2e9b458664a15f23ea1c370214193226069eb22921169fc7e43f";
 export function compose(t: Topology) {
@@ -205,6 +204,9 @@ export function compose(t: Topology) {
     services[n.service] = {
       profiles: ["lab"],
       image: endpoint ? endpointImage : routerImage,
+      ...(!endpoint
+        ? { build: { context: "..", dockerfile: "router-image/Dockerfile" } }
+        : {}),
       hostname: n.id,
       labels: { "io.minicore.node": n.id, "io.minicore.lab": t.lab_id },
       cap_drop: ["ALL"],
@@ -213,6 +215,7 @@ export function compose(t: Topology) {
         : [
             "NET_ADMIN",
             "NET_RAW",
+            "NET_BIND_SERVICE",
             "SETUID",
             "SETGID",
             "CHOWN",
@@ -239,12 +242,9 @@ export function compose(t: Topology) {
             ],
           }),
       healthcheck: {
-        test: [
-          "CMD-SHELL",
-          endpoint
-            ? "ip route show default | grep -q via"
-            : 'vtysh -c "show version" >/dev/null',
-        ],
+        test: endpoint
+          ? ["CMD-SHELL", "ip route show default | grep -q via"]
+          : ["CMD", "/usr/local/bin/node-health"],
         interval: "10s",
         timeout: "3s",
         retries: 6,

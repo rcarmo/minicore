@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+# A surviving watchfrr is not health. Each required daemon must answer its VTY.
+for daemon in zebra bgpd ospfd; do
+    test -S "/var/run/frr/$daemon.vty"
+    vtysh -d "$daemon" -c 'show version' >/dev/null
+done

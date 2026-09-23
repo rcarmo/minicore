@@ -9,13 +9,6 @@ if (!allowed.includes(action))
   throw Error(`Action must be one of ${allowed.join(", ")}`);
 if (node && !t.nodes.some((n) => n.id === node))
   throw Error("Unknown inventory node");
-if (
-  ["up", "start", "restart"].includes(action) &&
-  process.env.MINICORE_EXPERIMENTAL_ROUTERS !== "1"
-)
-  throw Error(
-    "Router image capability review is pending (SYS_ADMIN requested by upstream). See docs/known-limitations.md. Set MINICORE_EXPERIMENTAL_ROUTERS=1 only for explicit local investigation.",
-  );
 const base = [
   "docker",
   "compose",

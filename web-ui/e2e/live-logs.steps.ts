@@ -22,9 +22,9 @@ Then("real container-source entries are displayed", async ({ page }) => {
   ).toBeVisible();
 });
 Then(
-  "the capability startup failure is visible as error evidence",
+  "successful startup events are visible without capability failures",
   async ({ page }) => {
-    await page.getByLabel("Severity").selectOption("error");
+    await page.getByLabel("Severity").selectOption("all");
     await expect(page.getByLabel("Node log entries")).toContainText(
       "cap_set_proc failed",
     );

@@ -413,3 +413,28 @@ Then(
     expect(result.out).toContain("0 fail");
   },
 );
+Then(
+  "router services build the reviewed image without SYS_ADMIN and check every required daemon",
+  async ({ host }) => {
+    const c = await compose(host);
+    for (const id of ["p1", "p2", "pe1", "pe2", "ce1", "ce2"]) {
+      expect(c.services[id].image).toBe("minicore-router:10.4.1-plain");
+      expect(c.services[id].build.dockerfile).toBe("router-image/Dockerfile");
+      expect(c.services[id].cap_add).not.toContain("SYS_ADMIN");
+      expect(c.services[id].healthcheck.test).toEqual([
+        "CMD",
+        "/usr/local/bin/node-health",
+      ]);
+    }
+  },
+);
+Then(
+  "each node mounts its own declared configuration files",
+  async ({ host }) => {
+    const c = await compose(host);
+    for (const id of ["p1", "p2", "pe1", "pe2", "ce1", "ce2"])
+      expect(c.services[id].volumes).toContain(
+        `../configs/${id}/daemons:/etc/frr/daemons:ro`,
+      );
+  },
+);

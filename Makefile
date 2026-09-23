@@ -66,3 +66,11 @@ bdd-web:
 	cd web-ui && bun run test:bdd
 acceptance: check bdd-python bdd-web
 	cd web-ui && bun run scripts/verify-acceptance.ts
+router-build:
+	$(COMPOSE) --profile lab build p1
+watch-logs:
+	bun scripts/log-watcher.ts start
+stop-logs:
+	bun scripts/log-watcher.ts stop
+bdd-boot:
+	cd web-ui && bunx bddgen -c playwright.boot.config.ts && bunx playwright test -c playwright.boot.config.ts

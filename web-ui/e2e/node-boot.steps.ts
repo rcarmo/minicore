@@ -203,11 +203,14 @@ Then("a real p1 log event invalidates its HTTP log page via SSE", async () => {
     stdio: "pipe",
   });
   let output = "";
+  const exited = new Promise<number | null>((resolve) =>
+    child.once("exit", resolve),
+  );
   child.stdout.on("data", (b) => (output += b));
   child.stderr.on("data", (b) => (output += b));
   await new Promise((r) => setTimeout(r, 2000));
   await command([...base, "restart", "p1"]);
-  const code = await new Promise((r) => child.on("exit", r));
+  const code = await exited;
   expect(code, output).toBe(0);
 });
 Then(

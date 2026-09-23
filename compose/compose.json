@@ -72,7 +72,11 @@
       "profiles": [
         "lab"
       ],
-      "image": "quay.io/frrouting/frr:10.4.1@sha256:f1dd8182ca8ebd76421378702b95d1553fd7285d63db170640eefeb6f989c9dd",
+      "image": "minicore-router:10.4.1-plain",
+      "build": {
+        "context": "..",
+        "dockerfile": "router-image/Dockerfile"
+      },
       "hostname": "p1",
       "labels": {
         "io.minicore.node": "p1",
@@ -84,6 +88,7 @@
       "cap_add": [
         "NET_ADMIN",
         "NET_RAW",
+        "NET_BIND_SERVICE",
         "SETUID",
         "SETGID",
         "CHOWN",
@@ -122,8 +127,8 @@
       ],
       "healthcheck": {
         "test": [
-          "CMD-SHELL",
-          "vtysh -c \"show version\" >/dev/null"
+          "CMD",
+          "/usr/local/bin/node-health"
         ],
         "interval": "10s",
         "timeout": "3s",
@@ -141,7 +146,11 @@
       "profiles": [
         "lab"
       ],
-      "image": "quay.io/frrouting/frr:10.4.1@sha256:f1dd8182ca8ebd76421378702b95d1553fd7285d63db170640eefeb6f989c9dd",
+      "image": "minicore-router:10.4.1-plain",
+      "build": {
+        "context": "..",
+        "dockerfile": "router-image/Dockerfile"
+      },
       "hostname": "p2",
       "labels": {
         "io.minicore.node": "p2",
@@ -153,6 +162,7 @@
       "cap_add": [
         "NET_ADMIN",
         "NET_RAW",
+        "NET_BIND_SERVICE",
         "SETUID",
         "SETGID",
         "CHOWN",
@@ -191,8 +201,8 @@
       ],
       "healthcheck": {
         "test": [
-          "CMD-SHELL",
-          "vtysh -c \"show version\" >/dev/null"
+          "CMD",
+          "/usr/local/bin/node-health"
         ],
         "interval": "10s",
         "timeout": "3s",
@@ -210,7 +220,11 @@
       "profiles": [
         "lab"
       ],
-      "image": "quay.io/frrouting/frr:10.4.1@sha256:f1dd8182ca8ebd76421378702b95d1553fd7285d63db170640eefeb6f989c9dd",
+      "image": "minicore-router:10.4.1-plain",
+      "build": {
+        "context": "..",
+        "dockerfile": "router-image/Dockerfile"
+      },
       "hostname": "pe1",
       "labels": {
         "io.minicore.node": "pe1",
@@ -222,6 +236,7 @@
       "cap_add": [
         "NET_ADMIN",
         "NET_RAW",
+        "NET_BIND_SERVICE",
         "SETUID",
         "SETGID",
         "CHOWN",
@@ -260,8 +275,8 @@
       ],
       "healthcheck": {
         "test": [
-          "CMD-SHELL",
-          "vtysh -c \"show version\" >/dev/null"
+          "CMD",
+          "/usr/local/bin/node-health"
         ],
         "interval": "10s",
         "timeout": "3s",
@@ -279,7 +294,11 @@
       "profiles": [
         "lab"
       ],
-      "image": "quay.io/frrouting/frr:10.4.1@sha256:f1dd8182ca8ebd76421378702b95d1553fd7285d63db170640eefeb6f989c9dd",
+      "image": "minicore-router:10.4.1-plain",
+      "build": {
+        "context": "..",
+        "dockerfile": "router-image/Dockerfile"
+      },
       "hostname": "pe2",
       "labels": {
         "io.minicore.node": "pe2",
@@ -291,6 +310,7 @@
       "cap_add": [
         "NET_ADMIN",
         "NET_RAW",
+        "NET_BIND_SERVICE",
         "SETUID",
         "SETGID",
         "CHOWN",
@@ -329,8 +349,8 @@
       ],
       "healthcheck": {
         "test": [
-          "CMD-SHELL",
-          "vtysh -c \"show version\" >/dev/null"
+          "CMD",
+          "/usr/local/bin/node-health"
         ],
         "interval": "10s",
         "timeout": "3s",
@@ -348,7 +368,11 @@
       "profiles": [
         "lab"
       ],
-      "image": "quay.io/frrouting/frr:10.4.1@sha256:f1dd8182ca8ebd76421378702b95d1553fd7285d63db170640eefeb6f989c9dd",
+      "image": "minicore-router:10.4.1-plain",
+      "build": {
+        "context": "..",
+        "dockerfile": "router-image/Dockerfile"
+      },
       "hostname": "ce1",
       "labels": {
         "io.minicore.node": "ce1",
@@ -360,6 +384,7 @@
       "cap_add": [
         "NET_ADMIN",
         "NET_RAW",
+        "NET_BIND_SERVICE",
         "SETUID",
         "SETGID",
         "CHOWN",
@@ -394,8 +419,8 @@
       ],
       "healthcheck": {
         "test": [
-          "CMD-SHELL",
-          "vtysh -c \"show version\" >/dev/null"
+          "CMD",
+          "/usr/local/bin/node-health"
         ],
         "interval": "10s",
         "timeout": "3s",
@@ -413,7 +438,11 @@
       "profiles": [
         "lab"
       ],
-      "image": "quay.io/frrouting/frr:10.4.1@sha256:f1dd8182ca8ebd76421378702b95d1553fd7285d63db170640eefeb6f989c9dd",
+      "image": "minicore-router:10.4.1-plain",
+      "build": {
+        "context": "..",
+        "dockerfile": "router-image/Dockerfile"
+      },
       "hostname": "ce2",
       "labels": {
         "io.minicore.node": "ce2",
@@ -425,6 +454,7 @@
       "cap_add": [
         "NET_ADMIN",
         "NET_RAW",
+        "NET_BIND_SERVICE",
         "SETUID",
         "SETGID",
         "CHOWN",
@@ -459,8 +489,8 @@
       ],
       "healthcheck": {
         "test": [
-          "CMD-SHELL",
-          "vtysh -c \"show version\" >/dev/null"
+          "CMD",
+          "/usr/local/bin/node-health"
         ],
         "interval": "10s",
         "timeout": "3s",

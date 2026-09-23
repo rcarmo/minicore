@@ -2,6 +2,7 @@ import { render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { NetworkScene } from "./graph";
 import { NodeLogs } from "./logs";
+import { NodeConfiguration } from "./configuration";
 import { validateSnapshot } from "./topology";
 import type { TopologySnapshot } from "./types";
 import "./styles.css";
@@ -141,7 +142,13 @@ function App() {
                 {selected.role.toUpperCase()} · {selected.kind}
               </p>
               <nav aria-label="Node evidence sections">
-                {["Summary", "Interfaces", "Routing", "Logs"].map((name) => (
+                {[
+                  "Summary",
+                  "Interfaces",
+                  "Routing",
+                  "Logs",
+                  "Configuration",
+                ].map((name) => (
                   <button
                     aria-pressed={tab === name}
                     onClick={() => setTab(name)}
@@ -163,6 +170,8 @@ function App() {
                   <dt>Observed at</dt>
                   <dd>{selected.observed_at ?? "not collected"}</dd>
                 </dl>
+              ) : tab === "Configuration" ? (
+                <NodeConfiguration key={selected.id} nodeId={selected.id} />
               ) : tab === "Logs" ? (
                 <NodeLogs
                   key={`${selected.id}:${snapshot?.generation}`}

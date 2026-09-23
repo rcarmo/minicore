@@ -1,0 +1,7 @@
+{
+  "node_id": "host2",
+  "interface": "to-ce2",
+  "address": "10.200.9.2/29",
+  "gateway": "10.200.9.3",
+  "forwarding": false
+}

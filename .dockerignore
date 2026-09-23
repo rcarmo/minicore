@@ -14,3 +14,7 @@
 !web-ui/dist/main.js
 !web-ui/dist/styles.css
 !web-ui/dist/LICENSE-*.txt
+!router-image/
+!router-image/**
+!configs/
+!configs/**

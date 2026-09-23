@@ -5,6 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app/vendor/umcp:/ap
 COPY vendor/umcp /app/vendor/umcp
 COPY mcp-service/src /app/mcp-service/src
 COPY inventory /app/inventory
+COPY configs /app/configs
 COPY web-ui/dist /app/web-ui/dist
 USER 10001:10001
 EXPOSE 9000

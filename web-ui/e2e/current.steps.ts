@@ -95,3 +95,39 @@ Then(
     ).toThrow();
   },
 );
+
+Then(
+  "the Configuration tab shows declared files, renders selected file text and preserves the selected node",
+  async ({ page }) => {
+    await page.goto("/#p1");
+    await page
+      .getByRole("button", { name: "Configuration", exact: true })
+      .click();
+    await expect(
+      page.getByText("Declared baseline — not verified running configuration", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "frr.conf", exact: true }).click();
+    await expect(page.getByLabel("Configuration file contents")).toContainText(
+      "router bgp 65000",
+    );
+    await page.getByRole("button", { name: "daemons", exact: true }).click();
+    await expect(page.getByLabel("Configuration file contents")).toContainText(
+      "zebra=yes",
+    );
+    await page
+      .locator(".graph-label")
+      .filter({ hasText: /^HOST1$/ })
+      .click();
+    await page
+      .getByRole("button", { name: "network.json", exact: true })
+      .click();
+    await expect(page.getByLabel("Configuration file contents")).toContainText(
+      "10.200.8.3",
+    );
+    await expect(
+      page.getByRole("heading", { name: "HOST1", exact: true }),
+    ).toBeVisible();
+  },
+);

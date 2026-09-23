@@ -154,6 +154,7 @@ export function compose(t: Topology) {
     ports: ["${MINICORE_BIND:-127.0.0.1}:${MINICORE_PORT:-19000}:9000"],
     volumes: [
       "../inventory:/app/inventory:ro",
+      "../configs:/app/configs:ro",
       "../runtime:/runtime:ro",
       "../secrets:/run/secrets:ro",
     ],
@@ -234,7 +235,7 @@ export function compose(t: Topology) {
         : {
             volumes: [
               `../configs/${n.id}/frr.conf:/etc/frr/frr.conf:ro`,
-              `../configs/daemons:/etc/frr/daemons:ro`,
+              `../configs/${n.id}/daemons:/etc/frr/daemons:ro`,
             ],
           }),
       healthcheck: {
@@ -346,8 +347,30 @@ if (import.meta.main) {
     "configs/daemons":
       'zebra=yes\nbgpd=yes\nospfd=yes\nvtysh_enable=yes\nzebra_options=" -A 127.0.0.1"\nbgpd_options=" -A 127.0.0.1"\nospfd_options=" -A 127.0.0.1"\n',
   };
-  for (const n of t.nodes.filter((n) => n.kind === "router"))
-    files[`configs/${n.id}/frr.conf`] = frrConfig(t, n);
+  for (const n of t.nodes) {
+    if (n.kind === "router") {
+      files[`configs/${n.id}/frr.conf`] = frrConfig(t, n);
+      files[`configs/${n.id}/daemons`] = files["configs/daemons"];
+    } else {
+      const link = t.links.find((l) =>
+        l.endpoints.some((e) => e.node === n.id),
+      )!;
+      files[`configs/${n.id}/network.json`] =
+        JSON.stringify(
+          {
+            node_id: n.id,
+            interface: link.endpoints.find((e) => e.node === n.id)!.interface,
+            address: link.endpoints.find((e) => e.node === n.id)!.address,
+            gateway: link.endpoints
+              .find((e) => e.node !== n.id)!
+              .address.split("/")[0],
+            forwarding: false,
+          },
+          null,
+          2,
+        ) + "\n";
+    }
+  }
   for (const [path, text] of Object.entries(files)) {
     const full = join(root, path);
     if (process.argv.includes("--check")) {

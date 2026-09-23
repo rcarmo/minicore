@@ -326,3 +326,30 @@ small {
 .log-new {
   font-size: 0.75rem;
 }
+
+.config-tree {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.config-tree strong {
+  font-family: monospace;
+  font-size: 0.85rem;
+  padding: 6px;
+}
+.config-tree button {
+  text-align: left;
+  margin-left: 12px;
+}
+.config-content {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 45vh;
+  overflow: auto;
+}
+aside nav {
+  flex-wrap: wrap;
+}

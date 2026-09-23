@@ -12,6 +12,7 @@ from uuid import uuid4
 from aioumcp import AsyncMCPServer
 from umcp_shared import MCPHTTPResponse, get_request_context
 
+from .configuration import baseline
 from .logs import LogStore
 from .model import Topology
 from .policy import GOD, OPERATOR, Policy
@@ -58,6 +59,7 @@ INPUTS = {
 class Server(AsyncMCPServer):
     def __init__(self, topology: Topology, policy: Policy, assets: Path):
         self.topology, self.policy, self.assets = topology, policy, assets
+        self.config_root = assets.parent.parent / "configs"
         self.streams = 0
         self.log_store = LogStore(topology, policy.credentials.values())
         super().__init__()
@@ -323,6 +325,13 @@ class Server(AsyncMCPServer):
             return self.response(200 if result["status"] == "ok" else 503, result)
         if target.query:
             return self.response(400, {"error_code": "invalid_arguments"})
+        config_match = re.fullmatch(r"/api/v1/nodes/([a-z0-9]+)/config(?:/([a-z.]+))?", path)
+        if config_match:
+            node, name = config_match.groups()
+            status, payload = baseline(
+                self.topology, self.config_root, node, name, self.policy.credentials.values()
+            )
+            return self.response(status, payload)
         if path == "/api/v1/topology":
             return self.response(200, self.topology.snapshot())
         if path == "/api/v1/events":

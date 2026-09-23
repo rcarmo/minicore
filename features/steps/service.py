@@ -714,3 +714,68 @@ def bounded(c):
 def cursor_for_omitted(c):
     if len(c.page["data"]["entries"]) < c.page["data"]["retained_count"]:
         assert c.page["data"]["next_cursor"]
+
+
+@given("generated node baseline files are available")
+def generated_configuration(c):
+    directory = c.root / "configs"
+    for node in ["p1", "host1"]:
+        (directory / node).mkdir(parents=True)
+    (directory / "p1/frr.conf").write_text("hostname p1\nrouter bgp 65000\n")
+    (directory / "p1/daemons").write_text("zebra=yes\nbgpd=yes\nospfd=yes\n")
+    (directory / "host1/network.json").write_text('{"gateway":"10.200.8.3"}')
+    c.server.config_root = directory
+
+
+@then('the configuration tree lists only "{files}" beneath "{node}"')
+def configuration_tree(c, files, node):
+    assert c.response.status == 200, (c.response.status, c.response.body)
+    data = json.loads(c.response.body)["data"]
+    assert data["node_id"] == node
+    assert sorted(x["name"] for x in data["files"]) == sorted(files.split(","))
+
+
+@then("the configuration response is labelled declared baseline rather than running state")
+def configuration_source(c):
+    data = json.loads(c.response.body)["data"]
+    assert data["source"] == "declared_baseline" and data["running_verified"] is False
+
+
+@then('the configuration file contains "{text}" with a content revision')
+def configuration_content(c, text):
+    assert c.response.status == 200, (c.response.status, c.response.body)
+    data = json.loads(c.response.body)["data"]
+    assert text in data["content"] and len(data["revision"]) == 64
+
+
+@given('the p1 baseline file is "{condition}"')
+def configuration_bad(c, condition):
+    p = c.server.config_root / "p1/frr.conf"
+    if condition == "missing":
+        p.unlink()
+    elif condition == "symlink":
+        p.unlink()
+        p.symlink_to(c.tokens)
+    elif condition == "oversized":
+        p.write_text("x" * 32769)
+
+
+@then('configuration access fails with "{error}"')
+def configuration_failure(c, error):
+    assert c.response.status in {413, 503}
+    assert json.loads(c.response.body)["error_code"] == error
+
+
+@given("the p1 baseline contains secret-bearing configuration directives")
+def configuration_secrets(c):
+    (c.server.config_root / "p1/frr.conf").write_text(
+        "hostname p1\n neighbor 10.0.0.1 password never-show-this\n enable secret do-not-show\n token=opaque-secret\n"
+    )
+
+
+@then("the configuration secret values are absent and redaction is marked")
+def configuration_sanitized(c):
+    data = json.loads(c.response.body)["data"]
+    for secret in ["never-show-this", "do-not-show", "opaque-secret"]:
+        assert secret not in data["content"]
+    assert data["redacted"] is True

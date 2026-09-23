@@ -32,3 +32,6 @@ Feature: Current network workbench interactions
 
   Scenario: Reconcile topology invalidations and periodic polls without racing
     Then topology notifications and the 15-second poll fetch authoritative snapshots while preserving selection
+
+  Scenario: Browse a selected node's configuration file tree
+    Then the Configuration tab shows declared files, renders selected file text and preserves the selected node

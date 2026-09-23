@@ -34,6 +34,7 @@
       ],
       "volumes": [
         "../inventory:/app/inventory:ro",
+        "../configs:/app/configs:ro",
         "../runtime:/runtime:ro",
         "../secrets:/run/secrets:ro"
       ],
@@ -117,7 +118,7 @@
       "pids_limit": 64,
       "volumes": [
         "../configs/p1/frr.conf:/etc/frr/frr.conf:ro",
-        "../configs/daemons:/etc/frr/daemons:ro"
+        "../configs/p1/daemons:/etc/frr/daemons:ro"
       ],
       "healthcheck": {
         "test": [
@@ -186,7 +187,7 @@
       "pids_limit": 64,
       "volumes": [
         "../configs/p2/frr.conf:/etc/frr/frr.conf:ro",
-        "../configs/daemons:/etc/frr/daemons:ro"
+        "../configs/p2/daemons:/etc/frr/daemons:ro"
       ],
       "healthcheck": {
         "test": [
@@ -255,7 +256,7 @@
       "pids_limit": 64,
       "volumes": [
         "../configs/pe1/frr.conf:/etc/frr/frr.conf:ro",
-        "../configs/daemons:/etc/frr/daemons:ro"
+        "../configs/pe1/daemons:/etc/frr/daemons:ro"
       ],
       "healthcheck": {
         "test": [
@@ -324,7 +325,7 @@
       "pids_limit": 64,
       "volumes": [
         "../configs/pe2/frr.conf:/etc/frr/frr.conf:ro",
-        "../configs/daemons:/etc/frr/daemons:ro"
+        "../configs/pe2/daemons:/etc/frr/daemons:ro"
       ],
       "healthcheck": {
         "test": [
@@ -389,7 +390,7 @@
       "pids_limit": 64,
       "volumes": [
         "../configs/ce1/frr.conf:/etc/frr/frr.conf:ro",
-        "../configs/daemons:/etc/frr/daemons:ro"
+        "../configs/ce1/daemons:/etc/frr/daemons:ro"
       ],
       "healthcheck": {
         "test": [
@@ -454,7 +455,7 @@
       "pids_limit": 64,
       "volumes": [
         "../configs/ce2/frr.conf:/etc/frr/frr.conf:ro",
-        "../configs/daemons:/etc/frr/daemons:ro"
+        "../configs/ce2/daemons:/etc/frr/daemons:ro"
       ],
       "healthcheck": {
         "test": [

@@ -60,3 +60,6 @@ Feature: Generate and manage the declared containers from the host only
 
   Scenario: Enforce specification lifecycle and runner classification
     Then every implemented scenario has exactly one execution runner and no planned scenario can masquerade as implemented
+
+  Scenario: Reject a misleading acceptance report
+    Then a passing report with an outline renamed to another behavior fails the acceptance gate

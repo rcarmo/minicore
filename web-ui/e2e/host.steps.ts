@@ -401,3 +401,15 @@ Then(
     expect(result.out).toContain("0 fail");
   },
 );
+Then(
+  "a passing report with an outline renamed to another behavior fails the acceptance gate",
+  async () => {
+    const result = await child([
+      "bun",
+      "test",
+      join(root, "web-ui/src/acceptance-report.test.ts"),
+    ]);
+    expect(result.code, result.out).toBe(0);
+    expect(result.out).toContain("0 fail");
+  },
+);

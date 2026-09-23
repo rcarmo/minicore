@@ -34,8 +34,14 @@ for (const feature of records.filter(
     )
       failures.push("Missing Behave mapping: " + s.name);
 }
-function specs(suites: any[]): any[] {
-  return suites.flatMap((s) => [...(s.specs ?? []), ...specs(s.suites ?? [])]);
+function specs(suites: any[], parents: string[] = []): any[] {
+  return suites.flatMap((suite) => {
+    const ancestry = [...parents, suite.title];
+    return [
+      ...(suite.specs ?? []).map((spec: any) => ({ ...spec, ancestry })),
+      ...specs(suite.suites ?? [], ancestry),
+    ];
+  });
 }
 const all = specs(web.suites);
 for (const feature of records.filter(
@@ -62,10 +68,8 @@ for (const feature of records.filter(
       suite.filter(
         (r) =>
           r.title === s.name ||
-          r.title.startsWith(
-            "Example #",
-          ) /* outlines have parent suite titles checked by generation */,
-      ).length < s.cases
+          (r.title.startsWith("Example #") && r.ancestry.at(-1) === s.name),
+      ).length !== s.cases
     )
       failures.push("Missing Playwright mapping: " + s.name);
 }

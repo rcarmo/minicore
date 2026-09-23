@@ -1,3 +1,4 @@
+import { reason } from "./live-node";
 import { useEffect, useState } from "preact/hooks";
 export function NodeConfiguration({ nodeId }: { nodeId: string }) {
   const [files, setFiles] = useState<string[]>([]),
@@ -72,9 +73,11 @@ export function NodeConfiguration({ nodeId }: { nodeId: string }) {
   }, [nodeId, selected]);
   return (
     <section aria-label={`Configuration for ${nodeId}`}>
-      <p class="notice">
-        Declared baseline — not verified running configuration
-      </p>
+      <p class="notice">Saved configuration</p>
+      <details>
+        <summary>Source details</summary>
+        <p>Live running configuration has not been collected.</p>
+      </details>
       <nav aria-label="Node configuration files" class="config-tree">
         <strong>configs/{nodeId}/</strong>
         {files.map((name) => (
@@ -87,12 +90,12 @@ export function NodeConfiguration({ nodeId }: { nodeId: string }) {
           </button>
         ))}
       </nav>
-      {error && <p role="alert">Configuration unavailable: {error}</p>}
+      {error && <p role="alert">Configuration unavailable: {reason(error)}</p>}
       {selected && (
         <>
           <p class="log-meta">
             {selected} · SHA-256 {revision || "loading"}
-            {redacted ? " · secrets redacted" : ""}
+            {redacted ? " · secrets hidden" : ""}
           </p>
           <pre class="config-content" aria-label="Configuration file contents">
             {content}

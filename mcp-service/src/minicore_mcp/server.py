@@ -5,6 +5,7 @@ import ipaddress
 import json
 import logging
 import re
+import secrets
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -82,6 +83,7 @@ class Server(AsyncMCPServer):
         self.adapter: SSHAdapter | None = None
         self.controller: FaultController | None = None
         self.activity = Activity()
+        self.browser_origin = "http://127.0.0.1:19000"
         self.streams = 0
         self.log_store = LogStore(topology, policy.credentials.values())
         self.log_store.secrets = policy.credentials.values()
@@ -449,6 +451,9 @@ class Server(AsyncMCPServer):
                     for key in (
                         "state",
                         "scenario_id",
+                        "target_type",
+                        "target_id",
+                        "effect",
                         "node_id",
                         "interface",
                         "generation",
@@ -530,9 +535,115 @@ class Server(AsyncMCPServer):
         finally:
             self.streams -= 1
 
+    async def targeted_fault(self, args, principal):
+        from .host_faults import catalogue
+
+        if not isinstance(args, dict) or set(args) != {
+            "mode",
+            "target_type",
+            "target_id",
+            "idempotency_key",
+        }:
+            raise ValueError("invalid_arguments")
+        if (
+            args["mode"] not in {"zap", "dice"}
+            or args["target_type"] not in {"node", "link"}
+            or not isinstance(args["target_id"], str)
+        ):
+            raise ValueError("invalid_arguments")
+        self.validate_arguments("reset_lab", {"idempotency_key": args["idempotency_key"]})
+        specs = catalogue(self.topology.inventory)
+        prefix = "zap-" if args["mode"] == "zap" else "corrupt-"
+        choices = [
+            name
+            for name, spec in specs.items()
+            if name.startswith(prefix)
+            and spec["target_type"] == args["target_type"]
+            and spec["target_id"] == args["target_id"]
+        ]
+        if not choices:
+            raise ValueError("unknown_target")
+        if not self.controller:
+            return {"error_code": "backend_not_configured", "data": None}
+        if self.controller.lock.locked():
+            return self.controller.response("mutation_in_progress")
+        intents = self.controller.state.setdefault("target_intents", {})
+        key = args["idempotency_key"]
+        old = intents.get(key)
+        if old and old["request"] != args:
+            return self.controller.response("idempotency_conflict")
+        if old:
+            chosen = old["scenario"]
+        else:
+            if self.controller.state["state"] != "baseline":
+                return self.controller.response(
+                    "fault_conflict"
+                    if self.controller.state["state"] == "active"
+                    else "reconciliation_required"
+                )
+            if key in self.controller.state["results"]:
+                return self.controller.response("idempotency_conflict")
+            chosen = secrets.choice(choices)
+            intents[key] = {"request": args, "scenario": chosen}
+            while len(intents) > 128:
+                intents.pop(next(iter(intents)))
+            try:
+                self.controller.save()
+            except OSError:
+                intents.pop(key, None)
+                return self.controller.response("persistence_failed")
+        return await self.controller.apply(chosen, key, principal)
+
+    async def browser_fault(self, method, path, headers, body):
+        p = self.policy.authenticate(headers)
+        if not p or "god" not in p.roles:
+            return self.response(403, {"error_code": "authorization_denied"})
+        if method != "POST":
+            return self.response(405, {"error_code": "method_not_allowed"})
+        if (
+            headers.get("origin") != self.browser_origin
+            or headers.get("x-minicore-intent") != "fault-control"
+            or headers.get("content-type") != "application/json"
+        ):
+            return self.response(403, {"error_code": "invalid_origin_or_intent"})
+        if len(body) > 1024:
+            return self.response(400, {"error_code": "invalid_arguments"})
+        try:
+            args = json.loads(body)
+            if path == "/api/v1/faults/apply":
+                result = await self.targeted_fault(args, p.name)
+            elif path == "/api/v1/faults/reset":
+                self.validate_arguments("reset_lab", args)
+                result = (
+                    await self.controller.reset(args["idempotency_key"], p.name)
+                    if self.controller
+                    else {"error_code": "backend_not_configured", "data": None}
+                )
+            else:
+                return self.response(404, {"error_code": "not_found"})
+        except (ValueError, TypeError):
+            return self.response(400, {"error_code": "invalid_arguments"})
+        self.logger.info(
+            json.dumps(
+                {
+                    "event": "browser_fault",
+                    "principal": p.name,
+                    "operation": path.rsplit("/", 1)[-1],
+                    "idempotency_key": args["idempotency_key"],
+                    "generation": self.topology.inventory["generation"],
+                    "error_code": result["error_code"],
+                }
+            )
+        )
+        return self.response(200 if not result["error_code"] else 409, result)
+
     async def handle_http_request_async(self, *, method, path, headers, body, peer):
         target = urlsplit(path)
         path = target.path
+        if path in {"/api/v1/faults/apply", "/api/v1/faults/reset"}:
+            if target.query:
+                return self.response(400, {"error_code": "invalid_arguments"})
+            return await self.browser_fault(method, path, headers, body)
         if method != "GET":
             return self.response(405, {"error_code": "method_not_allowed"}, (("Allow", "GET"),))
         if path == "/healthz":
@@ -575,10 +686,25 @@ class Server(AsyncMCPServer):
                 200,
                 {
                     "can_god": "god" in p.roles,
+                    "fault_control": bool(
+                        self.controller
+                        and "zap-node-p1" in self.controller.scenarios
+                        and "god" in p.roles
+                    ),
                     "default_view": "agent",
                     "evidence_contract": "operator-v2",
                 },
             )
+        inspector_match = re.fullmatch(r"/api/v1/nodes/([a-z0-9]+)/observations", path)
+        if inspector_match:
+            node = inspector_match.group(1)
+            if node not in self.topology.nodes:
+                return self.response(404, {"error_code": "unknown_node"})
+            if target.query:
+                return self.response(400, {"error_code": "invalid_arguments"})
+            from .observations import collect
+
+            return self.response(200, await collect(self.topology, self.adapter, node))
         log_match = re.fullmatch(r"/api/v1/nodes/([a-z0-9]+)/logs(/events)?", path)
         if log_match:
             node, event_stream = log_match.groups()

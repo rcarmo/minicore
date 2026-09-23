@@ -95,3 +95,5 @@ bootstrap:
 	$(PYTHON) -m venv .venv
 	.venv/bin/pip install -r requirements-dev.lock
 	cd web-ui && bun install --frozen-lockfile
+live-performance:
+	cd web-ui && bunx bddgen -c playwright.performance.config.ts && bunx playwright test -c playwright.performance.config.ts

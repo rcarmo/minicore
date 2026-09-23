@@ -18,7 +18,8 @@ SCENARIOS = {
 
 
 class FaultController:
-    def __init__(self, topology, executor, directory):
+    def __init__(self, topology, executor, directory, catalogue=None):
+        self.scenarios = SCENARIOS | (catalogue or {})
         self.topology = topology
         self.executor = executor
         self.directory = directory
@@ -50,7 +51,7 @@ class FaultController:
                         "reconciliation_required",
                     }
                     or type(loaded.get("verified")) is not bool
-                    or loaded.get("scenario_id") not in {None, *SCENARIOS}
+                    or loaded.get("scenario_id") not in {None, *self.scenarios}
                     or not isinstance(loaded.get("results"), dict)
                     or len(loaded["results"]) > 128
                     or not isinstance(loaded.get("audit"), list)
@@ -91,7 +92,11 @@ class FaultController:
         self.topology.inventory["generation"] = self.state["generation"]
 
     def get_state(self):
-        return {k: copy.deepcopy(v) for k, v in self.state.items() if k not in {"results", "audit"}}
+        return {
+            k: copy.deepcopy(v)
+            for k, v in self.state.items()
+            if k not in {"results", "audit", "target_intents"}
+        }
 
     def save(self):
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -159,7 +164,7 @@ class FaultController:
         return result
 
     async def apply(self, scenario, key, principal):
-        if scenario not in SCENARIOS:
+        if scenario not in self.scenarios:
             return self.response("unknown_scenario")
         if self.lock.locked():
             return self.response("mutation_in_progress")
@@ -175,7 +180,10 @@ class FaultController:
                 if not await self.executor.verify_baseline():
                     return self.response("baseline_unverified")
                 self.state.update(
-                    state="applying", scenario_id=scenario, verified=False, **SCENARIOS[scenario]
+                    state="applying",
+                    scenario_id=scenario,
+                    verified=False,
+                    **self.scenarios[scenario],
                 )
                 self.save()
             except OSError:
@@ -234,7 +242,7 @@ class FaultController:
                 return self.response("persistence_failed")
             try:
                 # On corrupt/uncertain state remove only the three predefined Minicore effects.
-                for target in [scenario] if scenario in SCENARIOS else list(SCENARIOS):
+                for target in [scenario] if scenario in self.scenarios else list(self.scenarios):
                     response = await self.executor.mutate(target, "reset")
                     if not response.get("ok"):
                         raise RuntimeError("reset failed")
@@ -243,7 +251,14 @@ class FaultController:
                 self.state.update(
                     state="baseline", scenario_id=None, verified=True, error_code=None
                 )
-                for k in ["node_id", "interface", "parameters"]:
+                for k in [
+                    "node_id",
+                    "interface",
+                    "parameters",
+                    "target_type",
+                    "target_id",
+                    "effect",
+                ]:
                     self.state.pop(k, None)
                 if not was_baseline:
                     self.state["generation"] += 1

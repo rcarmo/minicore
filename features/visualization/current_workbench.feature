@@ -94,5 +94,17 @@ Feature: Current network workbench interactions
   Scenario: Protocol observations never obscure network nodes
     Then BGP and OSPF keep every node unobscured and show only the selected relationship outside the graph
 
-  Scenario: Floating diagnostics preserve a usable two-dimensional topology
-    Then the default 2D topology stays readable beside rounded scrollable movable diagnostic panels
+  Scenario: Floating diagnostics preserve a usable three-dimensional topology
+    Then the main 3D topology stays readable while floating diagnostics contain 2D graphs and scrollable tables
+
+  Scenario: God fault modes act on exactly one selected node or link
+    Then God can arm lightning or dice click one topology target and return to Inspect while Operator cannot arm either
+
+  Scenario: Live interface and summary inspectors refresh without reselection
+    Then selected node interfaces and peer states update live with specific collection errors
+
+  Scenario: Routing panels refresh automatically and pause collection when minimized
+    Then the routing panel refreshes evidence without manual collection and pauses when minimized
+
+  Scenario: Inspector wording is short and specific
+    Then the inspectors use plain status labels and keep source details collapsed

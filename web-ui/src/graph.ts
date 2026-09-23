@@ -19,6 +19,11 @@ export class NetworkScene {
   private readonly links = new THREE.Group();
   private readonly overlay = new THREE.Group();
   private facts: ProtocolFact[] = [];
+  private faultArmed = false;
+  private linkButtons: {
+    element: HTMLButtonElement;
+    position: THREE.Vector3;
+  }[] = [];
   private layer: RoutingLayer = "Physical";
   private readonly activity = new THREE.Group();
   private activeIds = new Set<string>();
@@ -39,6 +44,7 @@ export class NetworkScene {
   constructor(
     private canvas: HTMLCanvasElement,
     private onSelect: (node: TopologyNode | null) => void,
+    private onLink: (id: string) => void = () => {},
   ) {
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -134,7 +140,7 @@ export class NetworkScene {
       ]);
       const line = new THREE.Line(geometry, linkMaterial.clone());
       line.computeLineDistances();
-      line.userData = { source: link.source, target: link.target };
+      line.userData = { id: link.id, source: link.source, target: link.target };
       this.links.add(line);
     }
     linkMaterial.dispose();
@@ -165,6 +171,27 @@ export class NetworkScene {
     this.select(this.selected);
     this.setActivity([...this.activeIds]);
     this.setLayer(this.layer);
+    this.setFaultArmed(this.faultArmed);
+  }
+  setFaultArmed(armed: boolean) {
+    this.faultArmed = armed;
+    this.linkButtons.forEach((b) => b.element.remove());
+    this.linkButtons = [];
+    if (!armed || !this.snapshot) return;
+    for (const link of this.snapshot.links) {
+      const a = this.snapshot.nodes.find((n) => n.id === link.source)!,
+        b = this.snapshot.nodes.find((n) => n.id === link.target)!;
+      const element = document.createElement("button");
+      element.className = "fault-link-target";
+      element.textContent = "⚡";
+      element.setAttribute("aria-label", `Link ${link.id}`);
+      element.onclick = () => this.onLink(link.id);
+      this.canvas.parentElement?.appendChild(element);
+      this.linkButtons.push({
+        element,
+        position: this.v(a).lerp(this.v(b), 0.5),
+      });
+    }
   }
   setProtocolFacts(facts: ProtocolFact[]) {
     if (JSON.stringify(facts) === JSON.stringify(this.facts)) return;
@@ -317,6 +344,14 @@ export class NetworkScene {
     );
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const hit = this.raycaster.intersectObjects(this.nodeMeshes)[0];
+    if (!hit && this.faultArmed) {
+      this.raycaster.params.Line = { threshold: 0.15 };
+      const link = this.raycaster.intersectObjects(this.links.children)[0];
+      if (link) {
+        this.onLink(link.object.userData.id);
+        return;
+      }
+    }
     const id = hit?.object.userData.nodeId;
     this.onSelect(this.snapshot?.nodes.find((n) => n.id === id) ?? null);
   }
@@ -324,11 +359,18 @@ export class NetworkScene {
     const r = this.canvas.getBoundingClientRect();
     this.renderer.setSize(Math.max(1, r.width), Math.max(1, r.height), false);
     this.camera.aspect = Math.max(1, r.width) / Math.max(1, r.height);
+    this.camera.zoom = Math.min(1, this.camera.aspect / 2.4);
     this.camera.updateProjectionMatrix();
   }
   private updateLabels() {
     if (!this.snapshot) return;
     const r = this.canvas.getBoundingClientRect();
+    for (const label of this.linkButtons) {
+      const p = label.position.clone().project(this.camera);
+      label.element.style.left = `${((p.x + 1) * r.width) / 2}px`;
+      label.element.style.top = `${((1 - p.y) * r.height) / 2}px`;
+      label.element.hidden = p.z < -1 || p.z > 1;
+    }
     for (const n of this.snapshot.nodes) {
       const el = this.labels.get(n.id);
       if (!el) continue;
@@ -381,6 +423,8 @@ export class NetworkScene {
       });
       group.clear();
     }
+    this.linkButtons.forEach((b) => b.element.remove());
+    this.linkButtons = [];
     this.labels.forEach((v) => v.remove());
     this.labels.clear();
     this.nodeMeshes = [];

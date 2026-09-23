@@ -10,6 +10,8 @@ export function Topology2D({
   compact = false,
   selectedFact,
   onFact,
+  onLink,
+  armed = false,
 }: {
   snapshot: TopologySnapshot;
   selected?: string | null;
@@ -20,6 +22,8 @@ export function Topology2D({
   compact?: boolean;
   selectedFact?: string | null;
   onFact?: (id: string) => void;
+  onLink?: (id: string) => void;
+  armed?: boolean;
 }) {
   const byId = new Map(snapshot.nodes.map((n) => [n.id, n]));
   const point = (id: string) => {

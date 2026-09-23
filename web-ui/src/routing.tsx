@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
+import { reason } from "./live-node";
 import { FloatingPanel } from "./floating-panel";
 import { Topology2D } from "./topology-2d";
 import type { TopologySnapshot } from "./types";
@@ -27,6 +28,8 @@ export function RoutingLayers({
   epoch: string;
   onFacts: (facts: ProtocolFact[]) => void;
 }) {
+  const [minimized, setMinimized] = useState(false);
+  const [following, setFollowing] = useState(true);
   const [selectedFact, setSelectedFact] = useState<string | null>(null);
   useEffect(() => setSelectedFact(null), [layer, epoch, snapshot.generation]);
   const [prefix, setPrefix] = useState(
@@ -68,7 +71,11 @@ export function RoutingLayers({
     }
     setError("");
     if (!["BGP", "OSPF", "Prefix"].includes(layer)) return;
-    void (async () => {
+    if (minimized) return;
+    let pending = false;
+    const load = async () => {
+      if (disposed || pending || document.hidden) return;
+      pending = true;
       try {
         const response = await fetch(
           `/api/v1/routing?prefix=${encodeURIComponent(prefix)}`,
@@ -87,13 +94,20 @@ export function RoutingLayers({
       } catch (e) {
         if (!disposed)
           setError(e instanceof Error ? e.message : "Routing unavailable");
+      } finally {
+        pending = false;
       }
-    })();
+    };
+    void load();
+    const timer = following ? setInterval(load, 5000) : undefined;
+    document.addEventListener("visibilitychange", load);
     return () => {
       disposed = true;
       abort.abort();
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", load);
     };
-  }, [scopeKey, refresh, layer]);
+  }, [scopeKey, refresh, layer, following, minimized]);
   const routers = snapshot.nodes.filter((n) => n.kind === "router");
   const node = (id: string) =>
     evidence?.data.nodes.find((n) => n.node_id === id);
@@ -109,12 +123,21 @@ export function RoutingLayers({
     evidence?.data.nodes.map((n) => Date.parse(n.collected_at)) ?? [];
   const skew = times.length ? Math.max(...times) - Math.min(...times) : 0;
   return (
-    <FloatingPanel title="Routing diagnostics">
+    <FloatingPanel title="Routing diagnostics" onMinimize={setMinimized}>
       <section class="routing-layers" aria-label="Routing layers">
-        <p>
-          Declared topology from inventory · overlays do not prove reachability.
-          Observations are non-atomic, on demand; stale after 30s.
+        <p class="live-heading">
+          <span class="live-dot" />
+          {following ? "Live · refreshes every 5s" : "Paused"}{" "}
+          {times.length
+            ? `· Updated ${new Date(Math.max(...times)).toLocaleTimeString()}`
+            : "· Connecting…"}
         </p>
+        <button
+          aria-pressed={following}
+          onClick={() => setFollowing((v) => !v)}
+        >
+          {following ? "Pause live routing" : "Follow live routing"}
+        </button>
         {layer === "AS" && (
           <ul>
             {[65000, 65001, 65002].map((asn) => (
@@ -126,12 +149,12 @@ export function RoutingLayers({
                   .join(", ")}
               </li>
             ))}
-            <li>HOST1 / HOST2: attached endpoints, not BGP speakers</li>
+            <li>HOST1 / HOST2: endpoints</li>
           </ul>
         )}
         {layer === "OSPF" && (
           <>
-            <h2>Declared area 0 interfaces</h2>
+            <h2>Area 0 interfaces</h2>
             <ul>
               {snapshot.links
                 .filter((l) => l.ospf_area === "0")
@@ -143,9 +166,7 @@ export function RoutingLayers({
                 ))}
             </ul>
             <details>
-              <summary>
-                Per-node OSPF observations — no inferred link health
-              </summary>
+              <summary>OSPF response details</summary>
               {routers.map((n) => (
                 <div>
                   <b>
@@ -167,11 +188,7 @@ export function RoutingLayers({
         )}
         {["BGP", "OSPF"].includes(layer) && (
           <>
-            <h2>
-              {layer === "BGP"
-                ? "Declared logical sessions · not physical links"
-                : "OSPF interface endpoint observations"}
-            </h2>
+            <h2>{layer === "BGP" ? "BGP sessions" : "OSPF neighbours"}</h2>
             <div class="protocol-workbench">
               <Topology2D
                 snapshot={snapshot}
@@ -186,7 +203,7 @@ export function RoutingLayers({
                   <thead>
                     <tr>
                       <th>Relationship</th>
-                      <th>Independent endpoint observations</th>
+                      <th>State at each end</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -224,7 +241,7 @@ export function RoutingLayers({
         {["BGP", "OSPF", "Prefix"].includes(layer) && (
           <div class="routing-controls">
             <label>
-              One prefix{" "}
+              Prefix{" "}
               <select
                 value={prefix}
                 onChange={(e) => setPrefix(e.currentTarget.value)}
@@ -247,20 +264,20 @@ export function RoutingLayers({
         )}
         {["BGP", "OSPF", "Prefix"].includes(layer) && (
           <p>
-            Collection skew: {skew} ms ·{" "}
+            Collection time range: {skew} ms ·{" "}
             {error
-              ? "Refresh failed; retained sample timestamp unchanged"
-              : "No atomic cross-node snapshot"}
+              ? "Refresh failed — showing the last update"
+              : "Live collection"}
           </p>
         )}
         {layer === "Prefix" && (
           <section aria-label="Routing comparison">
-            <h3>Two-sample comparison</h3>
+            <h3>Changes since last update</h3>
             {changes === null ? (
               <p>
                 {error || (evidence && !complete(evidence))
-                  ? "Comparison unavailable — failed or partial refresh is not withdrawal"
-                  : "Need two complete fresh samples in this prefix and generation"}
+                  ? "Comparison unavailable — refresh incomplete"
+                  : "Waiting for two fresh updates"}
               </p>
             ) : changes.length ? (
               <ul>
@@ -269,45 +286,49 @@ export function RoutingLayers({
                 ))}
               </ul>
             ) : (
-              <p>No observed changes</p>
+              <p>No changes</p>
             )}
-            <small>
-              At most two successful samples retained. Stale, truncated or
-              cross-generation comparisons are suppressed.
-            </small>
+            <small>Compares the last two complete updates.</small>
           </section>
         )}
         {layer === "Prefix" && (
           <>
-            <h2>Exact prefix visibility</h2>
-            <p>
-              BGP paths ≠ IP RIB entries ≠ kernel forwarding entries ≠ sender
-              advertisements. Received pre-policy routes: not collected.
-            </p>
+            <h2>Prefix routes</h2>
+            <details>
+              <summary>Sources</summary>
+              <p>
+                BGP paths, IP routes, kernel forwarding entries and peer
+                exports. Received routes are not collected.
+              </p>
+            </details>
             <table aria-label="Exact prefix evidence">
               <thead>
                 <tr>
-                  <th>Router / source</th>
+                  <th>Router</th>
                   <th>BGP</th>
                   <th>IP RIB</th>
                   <th>Kernel FIB</th>
-                  <th>Peer exports</th>
+                  <th>Sent to peers</th>
                 </tr>
               </thead>
               <tbody>
                 {routers.map((router) => {
                   const n = node(router.id),
                     data = n?.data;
-                  const unavailable = n?.error_code ?? "not collected";
+                  const unavailable = n
+                    ? reason(n.error_code) || "Waiting for observation"
+                    : "Connecting…";
                   const paths = data?.bgp.paths;
                   return (
                     <tr>
                       <th>
                         {router.label}
                         <small>
-                          {n?.source ?? "node_dispatcher"} · {freshness(n)}
+                          {freshness(n)}
                           <br />
-                          {n?.collected_at ?? "not collected"}
+                          {n?.collected_at
+                            ? new Date(n.collected_at).toLocaleTimeString()
+                            : "Waiting for update"}
                         </small>
                       </th>
                       <td>
@@ -331,14 +352,12 @@ export function RoutingLayers({
                         {data
                           ? data.advertised.map((a) => (
                               <div>
-                                {a.peer}:{" "}
-                                {a.present ? "advertised" : "not advertised"} ·{" "}
-                                {a.source}
+                                {a.peer}: {a.present ? "sent" : "not sent"}
                               </div>
                             ))
                           : unavailable}
                         <details>
-                          <summary>Observation detail</summary>
+                          <summary>Response details</summary>
                           <pre>
                             {JSON.stringify(
                               n ?? { status: "not collected" },

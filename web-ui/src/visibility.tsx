@@ -14,6 +14,18 @@ export function useGodCapability() {
   }, []);
   return capable;
 }
+export function useFaultCapability() {
+  const [capable, setCapable] = useState(false);
+  useEffect(() => {
+    const abort = new AbortController();
+    void fetch("/api/v1/view", { signal: abort.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((v) => setCapable(v?.fault_control === true))
+      .catch(() => setCapable(false));
+    return () => abort.abort();
+  }, []);
+  return capable;
+}
 export function VisibilityToggle({
   view,
   capable,
@@ -46,7 +58,7 @@ export function ControllerState({ value }: { value: unknown }) {
   const c = value as Record<string, unknown> | undefined;
   return (
     <section aria-label="Controller ground truth" class="controller-state">
-      <strong>Controller ground truth</strong>
+      <strong>Fault status</strong>
       <p>{typeof c?.state === "string" ? c.state : "unavailable"}</p>
       {c?.scenario_id && <p>Scenario: {String(c.scenario_id)}</p>}
       {c?.node_id && (

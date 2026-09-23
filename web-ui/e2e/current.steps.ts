@@ -215,7 +215,7 @@ Then(
     );
     await page.locator(".graph-label").filter({ hasText: /^P2$/ }).click();
     await expect(
-      page.getByText("Routing evidence unavailable: backend_not_configured", {
+      page.getByText("Routing unavailable: Live collector not connected", {
         exact: true,
       }),
     ).toBeVisible();
@@ -400,7 +400,7 @@ Then(
       ).toBeVisible();
       await expect(
         page.getByRole("region", { name: "Routing layers" }),
-      ).toContainText("Declared");
+      ).toContainText("Live");
     }
     await expect(
       page
@@ -412,7 +412,7 @@ Then(
     ).toContainText("not collected");
     await expect(
       page.getByRole("region", { name: "Routing layers" }),
-    ).toContainText("backend_not_configured");
+    ).toContainText("Live collector not connected");
   },
 );
 
@@ -489,7 +489,9 @@ Then(
     });
     await page.goto("/");
     await page.getByRole("button", { name: "Prefix", exact: true }).click();
-    await page.getByLabel("One prefix").selectOption("10.200.9.0/29");
+    await page
+      .getByLabel("Prefix", { exact: true })
+      .selectOption("10.200.9.0/29");
     await expect(
       page.getByRole("region", { name: "Routing layers" }),
     ).toContainText("ok · 6/6 collected");
@@ -497,7 +499,9 @@ Then(
     await expect(
       page.getByRole("region", { name: "Routing layers" }),
     ).not.toContainText("late-first-prefix");
-    await expect(page.getByLabel("One prefix")).toHaveValue("10.200.9.0/29");
+    await expect(page.getByLabel("Prefix", { exact: true })).toHaveValue(
+      "10.200.9.0/29",
+    );
   },
 );
 
@@ -532,7 +536,7 @@ Then(
     ).toContainText("ok · 6/6 collected");
     await expect(
       page.getByRole("region", { name: "Routing comparison" }),
-    ).toContainText("Need two complete fresh samples");
+    ).toContainText("Waiting for two fresh updates");
     await page
       .getByRole("button", { name: "Collect routing evidence", exact: true })
       .click();
@@ -564,7 +568,7 @@ Then(
       .click();
     await expect(
       page.getByRole("region", { name: "Routing comparison" }),
-    ).toContainText("No observed changes");
+    ).toContainText("No changes");
     await expect(
       page.getByRole("region", { name: "Routing comparison" }),
     ).not.toContainText("withdrawn");
@@ -601,14 +605,14 @@ Then(
       .click();
     await expect(
       page.getByRole("region", { name: "Routing comparison" }),
-    ).toContainText("No observed changes");
+    ).toContainText("No changes");
     generation++;
     await page.evaluate(() =>
       document.dispatchEvent(new Event("visibilitychange")),
     );
     await expect(
       page.getByRole("region", { name: "Routing comparison" }),
-    ).toContainText("Need two complete fresh samples");
+    ).toContainText("Waiting for two fresh updates");
     await expect(
       page.getByRole("heading", { name: "P1", exact: true }),
     ).toBeVisible();
@@ -746,7 +750,7 @@ Then(
       .click();
     await expect(
       page.getByRole("region", { name: "Routing comparison" }),
-    ).not.toContainText("No observed changes");
+    ).not.toContainText("No changes");
     await expect(
       page.getByRole("region", { name: "Routing comparison" }),
     ).not.toContainText("withdrawn");
@@ -812,7 +816,10 @@ Then(
     await page.route("**/api/v1/routing?*", async (r) => {
       reads++;
       if (changed) await new Promise((resolve) => setTimeout(resolve, 1200));
-      return r.fulfill({ json: fixture("10.200.8.0/29") });
+      // A topology refresh aborts the preceding collection. That intercepted
+      // request may already be closed when this deliberate delay expires.
+      if (r.request().failure()) return;
+      await r.fulfill({ json: fixture("10.200.8.0/29") });
     });
     await page.goto("/");
     await page.getByRole("button", { name: "BGP", exact: true }).click();
@@ -854,7 +861,6 @@ Then(
     });
     await page.setViewportSize({ width: 820, height: 1180 });
     await page.goto("/");
-    await page.getByRole("button", { name: "3D", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("WebGL2 unavailable");
     await page
       .locator(".node-list")
@@ -893,7 +899,7 @@ Then(
       .click();
     await expect(
       page.getByRole("region", { name: "Routing comparison" }),
-    ).toContainText("No observed changes");
+    ).toContainText("No changes");
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
@@ -965,7 +971,7 @@ Then(
 );
 
 Then(
-  "the default 2D topology stays readable beside rounded scrollable movable diagnostic panels",
+  "the main 3D topology stays readable while floating diagnostics contain 2D graphs and scrollable tables",
   async ({ page }) => {
     const fixture = await routingFixture(page);
     await page.route("**/api/v1/routing?*", (r) =>
@@ -973,11 +979,13 @@ Then(
     );
     await page.goto("/#p1");
     await expect(
-      page.getByRole("button", { name: "2D", exact: true }),
-    ).toHaveAttribute("aria-pressed", "true");
-    await expect(
-      page.getByLabel("2D network topology", { exact: true }),
+      page.getByLabel("Interactive network topology", { exact: true }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("navigation", { name: "Topology dimension" }),
+    ).toHaveCount(0);
+    await expect(page.locator(".graph svg")).toHaveCount(0);
+    await expect(page.locator(".graph-label")).toHaveCount(8);
     await page.getByRole("button", { name: "BGP", exact: true }).click();
     const panel = page.getByRole("region", {
       name: "Routing diagnostics",
@@ -1040,5 +1048,204 @@ Then(
     expect(box.x + box.width).toBeLessThanOrEqual(820);
     expect(box.height).toBeLessThan(1180 * 0.6);
     await expect(page.locator(".graph-label")).toHaveCount(8);
+  },
+);
+
+Then(
+  "God can arm lightning or dice click one topology target and return to Inspect while Operator cannot arm either",
+  async ({ page }) => {
+    const topology = await (await page.request.get("/api/v1/topology")).json();
+    let state = "baseline";
+    const commands: any[] = [];
+    await page.route("**/api/v1/view", (r) =>
+      r.fulfill({ json: { can_god: true, fault_control: true } }),
+    );
+    await page.route("**/api/v1/topology?*", (r) =>
+      r.fulfill({
+        json: {
+          ...topology,
+          controller: { state, verified: true },
+          view: new URL(r.request().url()).searchParams.get("view"),
+        },
+      }),
+    );
+    await page.route("**/api/v1/faults/*", (r) => {
+      commands.push({
+        body: r.request().postDataJSON(),
+        headers: r.request().headers(),
+        url: r.request().url(),
+      });
+      state = r.request().url().endsWith("/reset") ? "baseline" : "active";
+      return r.fulfill({
+        json: { error_code: null, data: { state, verified: true } },
+      });
+    });
+    await page.goto("/#p1");
+    await expect(
+      page.getByRole("button", { name: "Lightning — kill target" }),
+    ).toHaveCount(0);
+    await page.getByRole("checkbox", { name: /God mode/ }).check();
+    await page.getByRole("button", { name: "Lightning — kill target" }).click();
+    await expect(
+      page.getByRole("status", { name: "Fault mode" }),
+    ).toContainText("Click a node to stop its container");
+    await page.locator(".graph-label").filter({ hasText: /^PE1$/ }).click();
+    await expect.poll(() => commands.length).toBe(1);
+    expect(commands[0].body).toMatchObject({
+      mode: "zap",
+      target_type: "node",
+      target_id: "pe1",
+    });
+    expect(commands[0].headers["x-minicore-intent"]).toBe("fault-control");
+    await expect(
+      page.getByRole("button", { name: "Inspect", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Restore lab" }).click();
+    await expect.poll(() => commands.length).toBe(2);
+    await page.getByRole("button", { name: "Lightning — kill target" }).click();
+    await page.getByRole("button", { name: "Link p1-p2", exact: true }).click();
+    await expect.poll(() => commands.length).toBe(3);
+    expect(commands[2].body).toMatchObject({
+      mode: "zap",
+      target_type: "link",
+      target_id: "p1-p2",
+    });
+    await page.getByRole("button", { name: "Restore lab" }).click();
+    await expect.poll(() => commands.length).toBe(4);
+    await page
+      .getByRole("button", { name: "Dice — random corruption" })
+      .click();
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("button", { name: "Inspect", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await page
+      .getByRole("button", { name: "Dice — random corruption" })
+      .click();
+    await page.locator(".graph-label").filter({ hasText: /^CE1$/ }).click();
+    await expect.poll(() => commands.length).toBe(5);
+    expect(commands[4].body).toMatchObject({
+      mode: "dice",
+      target_type: "node",
+      target_id: "ce1",
+    });
+    await page.getByRole("checkbox", { name: /God mode/ }).uncheck();
+    await expect(
+      page.getByRole("button", { name: "Lightning — kill target" }),
+    ).toHaveCount(0);
+    await page.unrouteAll({ behavior: "wait" });
+  },
+);
+
+Then(
+  "selected node interfaces and peer states update live with specific collection errors",
+  async ({ page }) => {
+    let calls = 0;
+    await page.route("**/api/v1/nodes/p1/observations", (r) => {
+      const up = ++calls === 1,
+        generation = 1;
+      const source = (data: any, error_code: string | null = null) => ({
+        node_id: "p1",
+        generation,
+        collected_at: new Date().toISOString(),
+        source: "node_dispatcher",
+        status: error_code ? "unavailable" : "ok",
+        data,
+        error_code,
+      });
+      return r.fulfill({
+        json: {
+          node_id: "p1",
+          generation,
+          data: {
+            interfaces: source([
+              {
+                ifname: "to-p2",
+                operstate: up ? "UP" : "DOWN",
+                flags: up ? ["UP"] : [],
+                addr_info: [{ local: "10.200.1.2", prefixlen: 29 }],
+              },
+            ]),
+            bgp: source({
+              ipv4Unicast: {
+                peers: { "10.254.0.2": { state: up ? "Established" : "Idle" } },
+              },
+            }),
+            ospf: source(null, "execution_timeout"),
+          },
+        },
+      });
+    });
+    await page.goto("/#p1");
+    await expect(
+      page.getByRole("region", { name: "Live node observations" }),
+    ).toContainText("Established");
+    await expect(
+      page.getByRole("region", { name: "Live node observations" }),
+    ).toContainText("Collection timed out");
+    await page.getByRole("button", { name: "Interfaces", exact: true }).click();
+    const interfaces = page.getByRole("table", { name: "Live interfaces" });
+    await expect(interfaces).toContainText("10.200.1.2/29");
+    await expect(interfaces).toContainText("DOWN", { timeout: 12000 });
+    await expect(
+      page.getByRole("heading", { name: "P1", exact: true }),
+    ).toBeVisible();
+  },
+);
+Then(
+  "the routing panel refreshes evidence without manual collection and pauses when minimized",
+  async ({ page }) => {
+    const fixture = await routingFixture(page);
+    let calls = 0;
+    await page.route("**/api/v1/routing?*", (r) => {
+      calls++;
+      return r.fulfill({ json: fixture("10.200.8.0/29") });
+    });
+    await page.goto("/#p1");
+    await page.getByRole("button", { name: "BGP", exact: true }).click();
+    await expect.poll(() => calls, { timeout: 12000 }).toBeGreaterThan(1);
+    await page
+      .getByRole("button", { name: "Minimize Routing diagnostics" })
+      .click();
+    await page.waitForTimeout(300);
+    const paused = calls;
+    await page.waitForTimeout(5500);
+    expect(calls).toBe(paused);
+    await page
+      .getByRole("button", { name: "Restore Routing diagnostics" })
+      .click();
+    await expect.poll(() => calls).toBeGreaterThan(paused);
+  },
+);
+
+Then(
+  "the inspectors use plain status labels and keep source details collapsed",
+  async ({ page }) => {
+    await page.goto("/#p1");
+    await page
+      .getByRole("button", { name: "Configuration", exact: true })
+      .click();
+    await expect(
+      page.getByText("Saved configuration", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Live running configuration has not been collected.", {
+        exact: true,
+      }),
+    ).toBeHidden();
+    for (const layer of ["AS", "OSPF", "BGP", "Prefix"]) {
+      await page.getByRole("button", { name: layer, exact: true }).click();
+      const text = await page.locator("body").innerText();
+      expect(text).not.toMatch(
+        /does not prove|do not prove|not atomic|not a fresh source|does not imply|not withdrawal|ground truth|declared|scope|≠/i,
+      );
+    }
+    await page.getByRole("button", { name: "Logs", exact: true }).click();
+    await expect(
+      page.getByRole("region", { name: "Logs for p1" }),
+    ).toContainText("Live collector not connected");
+    await expect(
+      page.getByRole("region", { name: "Logs for p1" }),
+    ).not.toContainText("backend_not_configured");
   },
 );

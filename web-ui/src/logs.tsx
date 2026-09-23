@@ -1,3 +1,4 @@
+import { reason } from "./live-node";
 import { useEffect, useRef, useState } from "preact/hooks";
 
 export interface LogEntry {
@@ -63,9 +64,11 @@ export function validateLogPage(value: unknown, node: string): LogPage {
 export function NodeLogs({
   nodeId,
   generation,
+  active = true,
 }: {
   nodeId: string;
   generation: number;
+  active?: boolean;
 }) {
   const [page, setPage] = useState<LogPage | null>(null);
   const [following, setFollowing] = useState(true);
@@ -80,6 +83,7 @@ export function NodeLogs({
   const cancelFetch = useRef<() => void>(() => {});
 
   useEffect(() => {
+    if (!active) return;
     let disposed = false;
     let serial = 0;
     let controller: AbortController | undefined;
@@ -132,7 +136,7 @@ export function NodeLogs({
         else if (state.revision !== lastRevision || state.error_code)
           setPending(true);
       } catch {
-        setFailure("Invalid log notification; polling continues");
+        setFailure("Log update interrupted; checking again");
       }
     };
     events.addEventListener("logs.snapshot", changed);
@@ -147,7 +151,7 @@ export function NodeLogs({
       clearInterval(timer);
       events.close();
     };
-  }, [nodeId, generation]);
+  }, [nodeId, generation, active]);
 
   function toggleFollow() {
     const next = !follow.current;
@@ -166,9 +170,9 @@ export function NodeLogs({
       (e) => severity === "all" || e.severity === severity,
     ) ?? [];
   const status = failure
-    ? `Logs unavailable: ${failure}`
+    ? `Logs unavailable: ${reason(failure)}`
     : page?.error_code
-      ? `Logs unavailable: ${page.error_code}`
+      ? `Logs unavailable: ${reason(page.error_code)}`
       : loading && !page
         ? "Loading node logs…"
         : page?.data.entries.length === 0
@@ -201,23 +205,24 @@ export function NodeLogs({
       </div>
       {pending && (
         <p class="log-new">
-          New events or source state available — follow latest to refresh.
+          New log entries available. Choose Follow latest to show them.
         </p>
       )}
       <p role="status" class="notice">
         {status}
       </p>
       <p class="log-meta">
-        Container stdout/stderr · {following ? "Following" : "Paused"} · SSE{" "}
-        {connection}
+        <span class="live-dot" />
+        {following ? "Live stream" : "Paused"} ·{" "}
+        {connection === "connected" ? "Connected" : connection}
         <br />
-        Collected {page?.collected_at ?? "not collected"}
-        <br />
-        Generation {generation} · 15-minute rolling window
+        Updated{" "}
+        {page?.collected_at
+          ? new Date(page.collected_at).toLocaleTimeString()
+          : "waiting for collector"}{" "}
+        · 15-minute window
         {page?.truncated ? " · truncated" : ""}
-        {page?.error_code && rows.length
-          ? " · retained evidence, not a fresh source"
-          : ""}
+        {page?.error_code && rows.length ? " · showing earlier entries" : ""}
       </p>
       <div
         ref={panel}

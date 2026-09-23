@@ -1,17 +1,19 @@
 import { render } from "preact";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import type { ProtocolFact } from "./routing-model";
+import { FaultToolbar, useFaultControls } from "./fault-toolbar";
 import { FloatingPanel } from "./floating-panel";
-import { Topology2D } from "./topology-2d";
 import { NetworkScene } from "./graph";
 import {
   ControllerState,
   VisibilityToggle,
   useGodCapability,
+  useFaultCapability,
   type ViewMode,
 } from "./visibility";
 import { useActivity } from "./activity";
 import { RoutingLayers, type RoutingLayer } from "./routing";
+import { LiveNode, useNodeObservations } from "./live-node";
 import { NodeRoutes } from "./routes";
 import { NodeLogs } from "./logs";
 import { NodeConfiguration } from "./configuration";
@@ -20,15 +22,17 @@ import type { TopologySnapshot } from "./types";
 import "./styles.css";
 
 function App() {
-  const [dimension, setDimension] = useState<"2D" | "3D">("2D");
   const [facts, setFacts] = useState<ProtocolFact[]>([]);
   const [layer, setLayer] = useState<RoutingLayer>("Physical");
   const [view, setView] = useState<ViewMode>("agent");
   const capable = useGodCapability();
+  const faultCapable = useFaultCapability();
   const changeView = (next: ViewMode) => {
     setSnapshot(null);
     setView(next);
   };
+  const linkAction = useRef<(id: string) => void>();
+  const faultAction = useRef<(id: string | null) => void>();
   const canvas = useRef<HTMLCanvasElement>(null);
   const scene = useRef<NetworkScene>();
   const [snapshot, setSnapshot] = useState<TopologySnapshot | null>(null);
@@ -37,6 +41,7 @@ function App() {
   );
   const [error, setError] = useState("");
   const [graphError, setGraphError] = useState("");
+  const [inspectorMinimized, setInspectorMinimized] = useState(false);
   const [tab, setTab] = useState("Summary");
   const [stream, setStream] = useState("reconnecting");
   const [lastFetched, setLastFetched] = useState("not fetched");
@@ -51,24 +56,47 @@ function App() {
     setFacts(facts);
     scene.current?.setProtocolFacts(facts);
   }, []);
+  const refreshFault = useCallback(
+    () => document.dispatchEvent(new Event("visibilitychange")),
+    [],
+  );
+  const fault = useFaultControls(
+    view === "god" && capable && faultCapable,
+    snapshot?.generation ?? 1,
+    refreshFault,
+  );
+  const observation = useNodeObservations(
+    selectedId ?? undefined,
+    snapshot?.generation ?? 1,
+    !inspectorMinimized && (tab === "Summary" || tab === "Interfaces"),
+  );
   const selected = snapshot?.nodes.find((n) => n.id === selectedId);
 
   function select(id: string | null) {
+    if (id && view === "god" && fault.mode !== "inspect") {
+      fault.target("node", id);
+      return;
+    }
     setSelectedId(id);
     history.replaceState(null, "", id ? `#${id}` : location.pathname);
   }
+  faultAction.current = select;
+  linkAction.current = (id) => fault.target("link", id);
+  useEffect(() => {
+    scene.current?.setFaultArmed(
+      view === "god" && faultCapable && fault.mode !== "inspect",
+    );
+  }, [view, faultCapable, fault.mode, snapshot]);
 
   useEffect(() => {
-    if (dimension !== "3D") {
-      scene.current = undefined;
-      return;
-    }
     setGraphError("");
     try {
       if (!canvas.current?.getContext("webgl2"))
         throw Error("WebGL2 unavailable — use the node and link lists below");
-      scene.current = new NetworkScene(canvas.current, (node) =>
-        select(node?.id ?? null),
+      scene.current = new NetworkScene(
+        canvas.current,
+        (node) => faultAction.current?.(node?.id ?? null),
+        (id) => linkAction.current?.(id),
       );
       if (snapshot) scene.current.setSnapshot(snapshot);
       scene.current.setLayer(layer);
@@ -80,7 +108,7 @@ function App() {
       scene.current?.dispose();
       scene.current = undefined;
     };
-  }, [dimension]);
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -175,47 +203,31 @@ function App() {
             ),
           )}
         </nav>
-        <nav aria-label="Topology dimension">
-          {(["2D", "3D"] as const).map((name) => (
-            <button
-              aria-pressed={dimension === name}
-              onClick={() => setDimension(name)}
-            >
-              {name}
-            </button>
-          ))}
-        </nav>
       </div>
-      <section class="workspace">
+      {view === "god" && capable && faultCapable && (
+        <FaultToolbar control={fault} />
+      )}
+      <section class="workspace" data-fault-mode={fault.mode}>
         <div class="graph">
-          {dimension === "2D" ? (
-            snapshot && (
-              <Topology2D
-                snapshot={snapshot}
-                selected={selectedId}
-                onSelect={select}
-                layer={layer}
-                activity={activityNodes}
-                facts={facts}
-              />
-            )
-          ) : (
+          <div class="graph-scene">
             <canvas ref={canvas} aria-label="Interactive network topology" />
-          )}
+          </div>
           <div class="graph-heading">
             <b>
               {snapshot?.nodes.length ?? 0} nodes /{" "}
               {snapshot?.links.length ?? 0} links
             </b>
-            <p>{layer} · declared links / independent protocol observations</p>
+            <p>
+              {snapshot?.nodes.filter((n) => n.container_state === "running")
+                .length ?? 0}{" "}
+              running · {layer} view
+            </p>
           </div>
           <div class="legend">
-            {dimension === "3D"
-              ? "Drag: orbit · Right drag: pan · Scroll/pinch: zoom"
-              : "Select a node · Protocol details in the diagnostic panel"}
+            Drag: orbit · Right drag: pan · Scroll/pinch: zoom
             <br />
-            Dashed links: declared · Teal: both endpoints up · Amber:
-            disagreement · Muted: unknown
+            Dashed: physical connections · Teal: peers connected · Amber:
+            disagreement · Muted: awaiting observation
           </div>
           <div class="graph-tools">
             <button onClick={() => scene.current?.reset()}>Reset view</button>
@@ -226,7 +238,11 @@ function App() {
             </div>
           )}
         </div>
-        <FloatingPanel title="Node inspector" kind="inspector">
+        <FloatingPanel
+          title="Node inspector"
+          kind="inspector"
+          onMinimize={setInspectorMinimized}
+        >
           <aside aria-label="Node inspector">
             <h2>{selected?.label ?? "Select a node"}</h2>
             {view === "god" && snapshot && (
@@ -259,18 +275,17 @@ function App() {
                   ))}
                 </nav>
                 {tab === "Summary" ? (
-                  <dl>
-                    <dt>Observed state</dt>
-                    <dd>{selected.state}</dd>
-                    <dt>Container</dt>
-                    <dd>{selected.container_state ?? "unknown"}</dd>
-                    <dt>Expected</dt>
-                    <dd>yes</dd>
-                    <dt>Protocols</dt>
-                    <dd>{selected.protocols.join(", ") || "none"}</dd>
-                    <dt>Observed at</dt>
-                    <dd>{selected.observed_at ?? "not collected"}</dd>
-                  </dl>
+                  <>
+                    <p class="node-runtime">
+                      Container{" "}
+                      {selected.container_state === "unknown"
+                        ? "status pending"
+                        : selected.container_state}
+                    </p>
+                    <LiveNode observation={observation} />
+                  </>
+                ) : tab === "Interfaces" ? (
+                  <LiveNode observation={observation} interfacesOnly />
                 ) : tab === "Routing" ? (
                   <NodeRoutes key={selected.id} nodeId={selected.id} />
                 ) : tab === "Configuration" ? (
@@ -280,6 +295,7 @@ function App() {
                     key={`${selected.id}:${snapshot?.generation}`}
                     nodeId={selected.id}
                     generation={snapshot!.generation}
+                    active={!inspectorMinimized}
                   />
                 ) : (
                   <p class="notice">
@@ -295,7 +311,7 @@ function App() {
                     )
                     .map((l) => (
                       <li key={l.id}>
-                        {l.source} ↔ {l.target} <small>({l.state})</small>
+                        {l.source} ↔ {l.target}
                       </li>
                     ))}
                 </ul>
@@ -315,7 +331,10 @@ function App() {
                       {n.label}
                     </button>{" "}
                     <small>
-                      {n.role} / {n.state}
+                      {n.role} /{" "}
+                      {n.container_state === "unknown"
+                        ? "waiting for collection"
+                        : n.container_state}
                       {activityNodes.includes(n.id) ? " · Agent access" : ""}
                     </small>
                   </li>

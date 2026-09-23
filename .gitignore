@@ -27,3 +27,5 @@ reports/
 web-ui/.features-boot-gen/
 
 web-ui/.features-faults/
+
+web-ui/.features-performance/

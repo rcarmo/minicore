@@ -20,7 +20,7 @@ Then(
   "the log browser reports that its node source is unavailable",
   async ({ page }) => {
     await expect(page.getByRole("status")).toHaveText(
-      /Logs unavailable: (backend_not_configured|node_unavailable|collector_stale)/,
+      /Logs unavailable: (Live collector not connected|Node unreachable|Collector stopped or delayed)/,
     );
   },
 );

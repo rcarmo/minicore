@@ -12,7 +12,7 @@ export async function graphSelection({ page }: { page: Page }) {
   ).toBeVisible();
   await page.getByRole("button", { name: "Logs", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText(
-    /Logs unavailable: (backend_not_configured|node_unavailable|collector_stale)/,
+    /Logs unavailable: (Live collector not connected|Node unreachable|Collector stopped or delayed)/,
   );
   await expect(page.getByText("connected", { exact: true })).toBeVisible();
   await page.screenshot({
@@ -36,7 +36,6 @@ export async function webglFallback({ page }: { page: Page }) {
   });
   await page.goto("/");
   await expect(page.getByText("8 nodes / 9 links")).toBeVisible();
-  await page.getByRole("button", { name: "3D", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("WebGL2 unavailable");
   await page.getByRole("button", { name: "CE2", exact: true }).click();
   await expect(
@@ -69,7 +68,6 @@ export async function tabletPolling({ page }: { page: Page }) {
 
 export async function cameraControls({ page }: { page: Page }) {
   await page.goto("/");
-  await page.getByRole("button", { name: "3D", exact: true }).click();
   await expect(page.locator(".graph-label")).toHaveCount(8);
   const position = () =>
     page
@@ -82,13 +80,11 @@ export async function cameraControls({ page }: { page: Page }) {
   const before = await position();
   const canvas = page.getByLabel("Interactive network topology");
   const box = (await canvas.boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  // Start in blank canvas space, not on a projected node-label button.
+  const origin = { x: box.x + box.width / 4, y: box.y + 30 };
+  await page.mouse.move(origin.x, origin.y);
   await page.mouse.down();
-  await page.mouse.move(
-    box.x + box.width / 2 + 80,
-    box.y + box.height / 2 + 30,
-    { steps: 5 },
-  );
+  await page.mouse.move(origin.x + 80, origin.y + 30, { steps: 5 });
   await page.mouse.up();
   await expect.poll(position).not.toEqual(before);
   const orbit = await position();
@@ -96,11 +92,7 @@ export async function cameraControls({ page }: { page: Page }) {
   await expect.poll(position).not.toEqual(orbit);
   const zoom = await position();
   await page.mouse.down({ button: "right" });
-  await page.mouse.move(
-    box.x + box.width / 2 + 130,
-    box.y + box.height / 2 + 80,
-    { steps: 5 },
-  );
+  await page.mouse.move(origin.x + 130, origin.y + 80, { steps: 5 });
   await page.mouse.up({ button: "right" });
   await expect.poll(position).not.toEqual(zoom);
   await page.getByRole("button", { name: "Reset view" }).click();
@@ -117,14 +109,18 @@ export async function unavailableTabs({ page }: { page: Page }) {
   await page.goto("/#p1");
   await page.getByRole("button", { name: "Interfaces", exact: true }).click();
   await expect(
-    page.getByText("Interfaces evidence unavailable: backend_not_configured"),
+    page
+      .getByRole("region", { name: "Live node observations" })
+      .getByText("Live collector not connected", { exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Routing", exact: true }).click();
   await expect(
-    page.getByText("Routing evidence unavailable: backend_not_configured"),
+    page.getByText("Routing unavailable: Live collector not connected"),
   ).toBeVisible();
   await page.getByRole("button", { name: "Summary", exact: true }).click();
-  await expect(page.getByText("Observed state", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Live · refreshes every 5s", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Logs", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Logs unavailable");
 }

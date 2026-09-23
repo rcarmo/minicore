@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .fault_executor import FaultExecutor
 from .faults import FaultController
+from .host_faults import CombinedExecutor, HostAdapter, catalogue
 from .model import Topology
 from .policy import Policy
 from .server import Server
@@ -26,15 +27,25 @@ def main():
     if os.environ.get("MINICORE_SSH_DIR"):
         server.adapter = SSHAdapter(topology, Path(os.environ["MINICORE_SSH_DIR"]))
     if os.environ.get("MINICORE_FAULT_DIR") and server.adapter:
+        executor: FaultExecutor | CombinedExecutor = FaultExecutor(
+            topology, server.adapter, Path(os.environ["MINICORE_FAULT_DIR"])
+        )
+        host_socket = os.environ.get("MINICORE_HOST_FAULT_SOCKET")
+        if host_socket:
+            executor = CombinedExecutor(
+                executor, HostAdapter(Path(host_socket)), topology.inventory
+            )
         server.controller = FaultController(
             topology,
-            FaultExecutor(topology, server.adapter, Path(os.environ["MINICORE_FAULT_DIR"])),
+            executor,
             Path(os.environ.get("MINICORE_CONTROL_DIR", "/control")),
+            catalogue=catalogue(topology.inventory) if host_socket else None,
         )
     if policy.profile == "private":
         logging.warning(
             "Private lab profile: reachable anonymous callers have Operator access; no individual identity."
         )
+    server.browser_origin = os.environ.get("MINICORE_BROWSER_ORIGIN", "http://127.0.0.1:19000")
     asyncio.run(
         server.run_streamable_http_async(
             host=os.environ.get("MINICORE_HOST", "0.0.0.0"),

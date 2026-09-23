@@ -7,11 +7,13 @@ export function FloatingPanel({
   children,
   kind = "routing",
   heading,
+  onMinimize,
 }: {
   title: string;
   children: ComponentChildren;
   kind?: "routing" | "inspector";
   heading?: ComponentChildren;
+  onMinimize?: (minimized: boolean) => void;
 }) {
   const ref = useRef<HTMLElement>(null);
   const [position, setPosition] = useState<Point | null>(null);
@@ -96,7 +98,10 @@ export function FloatingPanel({
           class="panel-minimize"
           aria-label={`${minimized ? "Restore" : "Minimize"} ${title}`}
           aria-expanded={!minimized}
-          onClick={() => setMinimized((v) => !v)}
+          onClick={() => {
+            setMinimized((v) => !v);
+            onMinimize?.(!minimized);
+          }}
         >
           {minimized ? "+" : "−"}
         </button>

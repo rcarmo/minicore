@@ -42,7 +42,7 @@ Feature: Show observed fault symptoms without leaking controller ground truth
 
   Scenario Outline: Keep ground truth outside ordinary viewer payloads
     Given a God principal has injected a known scenario
-    When an Operator or customer receives <surface>
+    When a viewer with God mode unchecked receives <surface>
     Then scenario labels, injection parameters, controller identity and control-state history are excluded server-side
     And factual routing, interface and node-log observations remain available under their policy
     Examples:
@@ -55,8 +55,8 @@ Feature: Show observed fault symptoms without leaking controller ground truth
       | a cached ordinary response     |
 
   Scenario: Do not use a visual switch to elevate privileges
-    Given a customer has opened the ordinary workbench
-    When a client requests controller ground-truth annotations through an unapproved flag or header
+    Given an Operator-only customer has opened the ordinary workbench
+    When a client requests controller ground-truth annotations through a forged God checkbox request or header
     Then the request cannot grant God capability
     And no God credential is embedded in frontend assets or stored by the ordinary viewer
 

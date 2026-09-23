@@ -10,4 +10,7 @@ grep -q 'Scaffold only' README.md
 test -s SPEC.md
 test -s .pi/skills/web-artifacts-builder/SKILL.md
 test -s features/visualization/node_evidence_browser.feature
+test -s features/security/mcp_capability_modes.feature
+test -s features/diagnostics/operator_commands.feature
+test -s features/incidents/god_fault_control.feature
 echo "Scaffold test passed."

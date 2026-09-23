@@ -12,6 +12,7 @@ from uuid import uuid4
 from aioumcp import AsyncMCPServer
 from umcp_shared import MCPHTTPResponse, get_request_context
 
+from .activity import Activity
 from .configuration import baseline
 from .logs import LogStore
 from .model import Topology
@@ -62,6 +63,7 @@ class Server(AsyncMCPServer):
         self.topology, self.policy, self.assets = topology, policy, assets
         self.config_root = assets.parent.parent / "configs"
         self.adapter: SSHAdapter | None = None
+        self.activity = Activity()
         self.streams = 0
         self.log_store = LogStore(topology, policy.credentials.values())
         super().__init__()
@@ -198,26 +200,35 @@ class Server(AsyncMCPServer):
             return self.create_response(
                 request_id, error=self.create_error(-32602, str(e), {"request_id": trace})
             )
-        data, error = None, None
-        if name == "list_nodes":
-            data = {
-                "nodes": self.topology.snapshot()["nodes"],
-                "supported_operations": sorted(OPERATOR),
-                "runtime_backend": "not_configured",
-            }
-        elif name == "list_fault_scenarios":
-            data = {"scenarios": [{"id": s, "available": False} for s in SCENARIOS]}
-        elif (
-            name in {"get_routes", "get_interfaces", "get_neighbors", "ping"}
-            and self.adapter is not None
-        ):
-            execution = await self.adapter.execute(
-                args["node_id"],
-                {"operation": name, **{k: v for k, v in args.items() if k != "node_id"}},
-            )
-            data, error = execution["data"], execution["error_code"]
-        else:
-            error = "backend_not_configured"
+        activity_id = (
+            self.activity.start(args["node_id"], self.topology.inventory["generation"])
+            if name in {"get_routes", "get_interfaces", "get_neighbors", "ping"}
+            else None
+        )
+        try:
+            data, error = None, None
+            if name == "list_nodes":
+                data = {
+                    "nodes": self.topology.snapshot()["nodes"],
+                    "supported_operations": sorted(OPERATOR),
+                    "runtime_backend": "not_configured",
+                }
+            elif name == "list_fault_scenarios":
+                data = {"scenarios": [{"id": s, "available": False} for s in SCENARIOS]}
+            elif (
+                name in {"get_routes", "get_interfaces", "get_neighbors", "ping"}
+                and self.adapter is not None
+            ):
+                execution = await self.adapter.execute(
+                    args["node_id"],
+                    {"operation": name, **{k: v for k, v in args.items() if k != "node_id"}},
+                )
+                data, error = execution["data"], execution["error_code"]
+            else:
+                error = "backend_not_configured"
+        finally:
+            if activity_id is not None:
+                self.activity.finish(activity_id)
         result = self.topology.envelope(
             name, args.get("node_id"), data=data, error=error, request_id=trace
         )
@@ -297,6 +308,23 @@ class Server(AsyncMCPServer):
                 else:
                     yield b": heartbeat\n\n"
                 await asyncio.sleep(2)
+        finally:
+            self.streams -= 1
+
+    async def activity_events(self):
+        self.streams += 1
+        try:
+            async with asyncio.timeout(60):
+                while True:
+                    event = self.activity.changed
+                    data = self.activity.snapshot(self.topology.inventory["generation"])
+                    yield f"event: activity.snapshot\ndata: {json.dumps(data)}\n\n".encode()
+                    try:
+                        await asyncio.wait_for(event.wait(), timeout=2)
+                    except TimeoutError:
+                        pass
+        except TimeoutError:
+            return
         finally:
             self.streams -= 1
 
@@ -392,6 +420,17 @@ class Server(AsyncMCPServer):
                 self.topology, self.config_root, node, name, self.policy.credentials.values()
             )
             return self.response(status, payload)
+        if path == "/api/v1/activity":
+            return self.response(200, self.activity.snapshot(self.topology.inventory["generation"]))
+        if path == "/api/v1/activity/events":
+            if self.streams >= 16:
+                return self.response(503, {"error_code": "stream_limit"})
+            return MCPHTTPResponse(
+                200,
+                content_type="text/event-stream",
+                headers=(("Cache-Control", "no-store"), ("X-Accel-Buffering", "no")),
+                stream=self.activity_events(),
+            )
         if path == "/api/v1/topology":
             return self.response(200, self.topology.snapshot())
         if path == "/api/v1/events":

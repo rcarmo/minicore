@@ -324,3 +324,60 @@ def protocol_evidence(c):
 def protocol_disabled(c):
     r = c.protocols["disabled"]
     assert r.isError and r.structuredContent["error_code"] == "protocol_not_enabled", r
+
+
+@when("the external SDK starts a bounded node probe while a viewer watches activity SSE")
+def live_activity(c):
+    async def observe():
+        observed = []
+        async with httpx.AsyncClient(timeout=15) as http:
+            async with http.stream(
+                "GET", "http://127.0.0.1:19000/api/v1/activity/events"
+            ) as response:
+                assert response.status_code == 200
+
+                async def watch():
+                    started = set()
+                    async for line in response.aiter_lines():
+                        if line.startswith("data: "):
+                            data = json.loads(line[6:])
+                            observed.append(data)
+                            started.update(
+                                r["request_id"]
+                                for r in data.get("active", [])
+                                if r["node_id"] == "p1"
+                            )
+                            if any(r["request_id"] in started for r in data.get("recent", [])):
+                                return
+
+                reader = asyncio.create_task(watch())
+                async with streamable_http_client("http://127.0.0.1:19000/mcp") as (read, write, _):
+                    async with ClientSession(
+                        read, write, read_timeout_seconds=timedelta(seconds=20)
+                    ) as client:
+                        await client.initialize()
+                        await client.call_tool(
+                            "ping", {"node_id": "p1", "destination": "10.200.9.2", "count": 2}
+                        )
+                await asyncio.wait_for(reader, 10)
+        return observed
+
+    c.activity_events = asyncio.run(observe())
+
+
+@then("the viewer observes p1 active and then finished for the same request")
+def live_activity_lifecycle(c):
+    active = {
+        r["request_id"] for s in c.activity_events for r in s["active"] if r["node_id"] == "p1"
+    }
+    finished = {
+        r["request_id"] for s in c.activity_events for r in s["recent"] if r["node_id"] == "p1"
+    }
+    assert active & finished, c.activity_events
+
+
+@then("no probe arguments or evidence payload appears in activity events")
+def live_activity_metadata(c):
+    text = json.dumps(c.activity_events)
+    for key in ["destination", "10.200.9.2", "raw_evidence", "loss_percent", "arguments"]:
+        assert key not in text

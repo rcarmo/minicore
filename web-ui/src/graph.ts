@@ -16,6 +16,9 @@ export class NetworkScene {
   private readonly pointer = new THREE.Vector2();
   private readonly devices = new THREE.Group();
   private readonly links = new THREE.Group();
+  private readonly activity = new THREE.Group();
+  private activeIds = new Set<string>();
+  private reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   private readonly labels = new Map<string, HTMLButtonElement>();
   private nodeMeshes: THREE.Mesh[] = [];
   private controls: OrbitControls;
@@ -44,6 +47,7 @@ export class NetworkScene {
     this.scene.add(
       this.links,
       this.devices,
+      this.activity,
       new THREE.HemisphereLight(0xddeeff, 0x26323d, 2.1),
     );
     const key = new THREE.DirectionalLight(0xffffff, 1.8);
@@ -154,6 +158,53 @@ export class NetworkScene {
       this.labels.set(node.id, label);
     }
     this.select(this.selected);
+    this.setActivity([...this.activeIds]);
+  }
+  setActivity(ids: string[]) {
+    this.activeIds = new Set(ids);
+    for (const child of this.activity.children) {
+      const m = child as THREE.Mesh;
+      if (this.activeIds.has(m.userData.nodeId)) delete m.userData.fadeUntil;
+      else if (!m.userData.fadeUntil)
+        m.userData.fadeUntil =
+          performance.now() + (this.reducedMotion.matches ? 0 : 600);
+    }
+    for (const node of this.snapshot?.nodes ?? []) {
+      const label = this.labels.get(node.id);
+      if (label) {
+        label.dataset.agentActive = String(this.activeIds.has(node.id));
+        label.setAttribute(
+          "aria-label",
+          node.label + (this.activeIds.has(node.id) ? " — Agent access" : ""),
+        );
+      }
+      if (
+        !this.activeIds.has(node.id) ||
+        this.activity.children.some((m) => m.userData.nodeId === node.id)
+      )
+        continue;
+      for (const [radius, color] of [
+        [0.62, 0x00e5ff],
+        [0.76, 0xff36cf],
+      ]) {
+        const ring = new THREE.Mesh(
+          new THREE.RingGeometry(radius, radius + 0.05, 48),
+          new THREE.MeshBasicMaterial({
+            color,
+            transparent: true,
+            opacity: 0.8,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+          }),
+        );
+        ring.userData.nodeId = node.id;
+        ring.position.copy(this.v(node));
+        ring.position.y += 0.02;
+        ring.rotation.x = -Math.PI / 2;
+        this.activity.add(ring);
+      }
+    }
   }
   select(id: string | null) {
     this.selected = id;
@@ -217,10 +268,31 @@ export class NetworkScene {
     this.controls.update();
     this.camera.updateMatrixWorld();
     this.updateLabels();
+    for (const child of [...this.activity.children]) {
+      const m = child as THREE.Mesh;
+      if (m.userData.fadeUntil && performance.now() >= m.userData.fadeUntil) {
+        this.activity.remove(m);
+        m.geometry.dispose();
+        (m.material as THREE.Material).dispose();
+        continue;
+      }
+      const fade = m.userData.fadeUntil
+        ? Math.max(0, (m.userData.fadeUntil - performance.now()) / 600)
+        : 1;
+      const pulse = this.reducedMotion.matches
+        ? 1
+        : 1 + 0.055 * Math.sin(performance.now() / 180);
+      m.scale.setScalar(pulse);
+      (m.material as THREE.MeshBasicMaterial).opacity =
+        fade *
+        (this.reducedMotion.matches
+          ? 0.8
+          : 0.72 + 0.15 * Math.sin(performance.now() / 180));
+    }
     this.renderer.render(this.scene, this.camera);
   };
   private clear() {
-    for (const group of [this.devices, this.links]) {
+    for (const group of [this.devices, this.links, this.activity]) {
       group.traverse((o) => {
         const x = o as THREE.Mesh;
         x.geometry?.dispose();

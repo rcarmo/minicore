@@ -221,3 +221,84 @@ Then(
     ).toBeVisible();
   },
 );
+Then(
+  "a node activity event creates a bounded halo and accessible cue, overlap stays lit, and completion fades without changing selection",
+  async ({ page }) => {
+    let active = true;
+    const data = () => ({
+      epoch: "test",
+      generation: 1,
+      revision: active ? 1 : 2,
+      active: active
+        ? [
+            {
+              node_id: "p1",
+              request_id: "first",
+              expires_at: Date.now() / 1000 + 3,
+            },
+            {
+              node_id: "p1",
+              request_id: "second",
+              expires_at: Date.now() / 1000 + 3,
+            },
+          ]
+        : [],
+      recent: [],
+    });
+    await page.route("**/api/v1/activity", (r) => r.fulfill({ json: data() }));
+    await page.route("**/api/v1/activity/events", (r) =>
+      r.fulfill({
+        contentType: "text/event-stream",
+        body: `retry: 300\nevent: activity.snapshot\ndata: ${JSON.stringify(data())}\n\n`,
+      }),
+    );
+    await page.goto("/#p1");
+    const label = page.locator(".graph-label").filter({ hasText: /^P1$/ });
+    await expect(label).toHaveAttribute("data-agent-active", "true");
+    await expect(label).toHaveAttribute("aria-label", "P1 — Agent access");
+    active = false;
+    await expect(label).toHaveAttribute("data-agent-active", "false", {
+      timeout: 10000,
+    });
+    await expect(
+      page.getByRole("heading", { name: "P1", exact: true }),
+    ).toBeVisible();
+  },
+);
+Then(
+  "reduced motion uses a steady activity ring and obsolete generations never light a node",
+  async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    let generation = 1;
+    const data = () => ({
+      epoch: "test",
+      generation,
+      revision: 1,
+      active: [
+        {
+          node_id: "p1",
+          request_id: "first",
+          expires_at: Date.now() / 1000 + 3,
+        },
+      ],
+      recent: [],
+    });
+    await page.route("**/api/v1/activity", (r) => r.fulfill({ json: data() }));
+    await page.route("**/api/v1/activity/events", (r) =>
+      r.fulfill({
+        contentType: "text/event-stream",
+        body: `retry: 300\nevent: activity.snapshot\ndata: ${JSON.stringify(data())}\n\n`,
+      }),
+    );
+    await page.goto("/#p1");
+    const label = page.locator(".graph-label").filter({ hasText: /^P1$/ });
+    await expect(label).toHaveAttribute("data-agent-active", "true");
+    expect(await label.evaluate((el) => getComputedStyle(el).boxShadow)).toBe(
+      "none",
+    );
+    generation = 0;
+    await expect(label).toHaveAttribute("data-agent-active", "false", {
+      timeout: 10000,
+    });
+  },
+);

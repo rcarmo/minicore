@@ -353,3 +353,19 @@ small {
 aside nav {
   flex-wrap: wrap;
 }
+.graph-label[data-agent-active="true"] {
+  box-shadow:
+    0 0 10px #00e5ff88,
+    0 0 20px #ff36cf66;
+  border-bottom: 1px solid #00e5ff;
+}
+.graph-label[data-agent-active="true"]::after {
+  content: " ·";
+  color: #ff36cf;
+}
+@media (prefers-reduced-motion: reduce) {
+  .graph-label[data-agent-active="true"] {
+    box-shadow: none;
+    border: 2px solid #00e5ff;
+  }
+}

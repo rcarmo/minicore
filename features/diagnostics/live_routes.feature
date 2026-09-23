@@ -37,3 +37,10 @@ Feature: Collect real router routes through restricted SSH and MCP
     When the official client reads provider adjacencies and a customer's undeclared OSPF
     Then the provider evidence contains Full neighbors and Established BGP peers
     And the customer OSPF request reports protocol_not_enabled
+
+  Scenario: Publish real SDK node access without leaking request contents
+    Given diagnostic keys and pinned node host keys have been provisioned
+    And the lab routers and management service are running with the SSH adapter
+    When the external SDK starts a bounded node probe while a viewer watches activity SSE
+    Then the viewer observes p1 active and then finished for the same request
+    And no probe arguments or evidence payload appears in activity events

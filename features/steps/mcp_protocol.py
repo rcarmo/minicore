@@ -608,3 +608,230 @@ def disabled_ospf(c):
 )
 def disabled_ospf_result(c):
     assert c.disabled_protocol == "protocol_not_enabled"
+
+
+@when("an authorised node-directed MCP request begins and finishes")
+def activity_execution(c):
+    import asyncio
+
+    from umcp_shared import MCPRequestContext
+
+    class Slow:
+        async def execute(self, node, request):
+            await asyncio.sleep(0.1)
+            return {
+                "status": "ok",
+                "error_code": None,
+                "data": {},
+                "raw_evidence": "",
+                "duration_ms": 1,
+                "truncated": False,
+            }
+
+    c.server.adapter = Slow()
+
+    async def execute():
+        task = asyncio.create_task(
+            c.server.process_request_async(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": {"name": "get_routes", "arguments": {"node_id": "p1"}},
+                    }
+                ),
+                context=MCPRequestContext(
+                    principal="operator", headers={"authorization": "Bearer " + "o" * 40}
+                ),
+            )
+        )
+        await asyncio.sleep(0.03)
+        c.during = c.server.activity.snapshot(c.generation)
+        await task
+        c.after = c.server.activity.snapshot(c.generation)
+
+    asyncio.run(execute())
+
+
+@then("its node is active during execution and inactive after completion")
+def activity_transition(c):
+    assert [r["node_id"] for r in c.during["active"]] == ["p1"] and c.after["active"] == []
+
+
+@then("the activity response contains no arguments, result bodies or credentials")
+def activity_minimal(c):
+    text = json.dumps(c.during)
+    for value in ["arguments", "raw_evidence", "authorization", "o" * 40]:
+        assert value not in text
+
+
+@when("two ordinary requests overlap on p1")
+def activity_overlap(c):
+    c.a = c.server.activity.start("p1", c.generation)
+    c.b = c.server.activity.start("p1", c.generation)
+
+
+@then("finishing one retains p1 activity until the other finishes")
+def activity_overlap_result(c):
+    c.server.activity.finish(c.a)
+    assert len(c.server.activity.snapshot(c.generation)["active"]) == 1
+    c.server.activity.finish(c.b)
+    assert c.server.activity.snapshot(c.generation)["active"] == []
+
+
+@when('a node request ends by "{outcome}"')
+def activity_end(c, outcome):
+    import asyncio
+
+    from umcp_shared import MCPRequestContext
+
+    class Fails:
+        async def execute(self, node, request):
+            if outcome == "cancellation":
+                raise asyncio.CancelledError()
+            raise RuntimeError("fixture error")
+
+    c.server.adapter = None if outcome == "backend_not_configured" else Fails()
+
+    async def execute():
+        try:
+            await c.server.process_request_async(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": {"name": "get_routes", "arguments": {"node_id": "p1"}},
+                    }
+                ),
+                context=MCPRequestContext(
+                    principal="operator", headers={"authorization": "Bearer " + "o" * 40}
+                ),
+            )
+        except RuntimeError:
+            pass
+
+    asyncio.run(execute())
+
+
+@then("its active record is removed without a health-state change")
+def activity_end_result(c):
+    assert c.server.activity.snapshot(c.generation)["active"] == [] and all(
+        n["state"] == "unknown" for n in c.topology.snapshot()["nodes"]
+    )
+
+
+@when('"{kind}" occurs')
+def no_activity_operation(c, kind):
+    import asyncio
+
+    from umcp_shared import MCPRequestContext
+
+    async def execute():
+        if kind in ["browser routes", "background snapshot"]:
+            await c.server.handle_http_request_async(
+                method="GET",
+                path="/api/v1/nodes/p1/routes" if kind == "browser routes" else "/api/v1/topology",
+                headers={"authorization": "Bearer " + "o" * 40},
+                body=b"",
+                peer="127.0.0.1",
+            )
+            return
+        calls = {
+            "list_nodes": ("operator", "list_nodes", {}),
+            "denied God call": ("operator", "get_fault_state", {}),
+            "invalid node": ("operator", "get_routes", {"node_id": "alien"}),
+            "God mutation": ("god", "reset_lab", {"idempotency_key": "activity-test"}),
+        }
+        role, name, args = calls[kind]
+        await c.server.process_request_async(
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": name, "arguments": args},
+                }
+            ),
+            context=MCPRequestContext(
+                principal=role, headers={"authorization": "Bearer " + role[0] * 40}
+            ),
+        )
+
+    asyncio.run(execute())
+
+
+@then("no node activity record is published")
+def activity_excluded(c):
+    assert c.server.activity.snapshot(c.generation)["revision"] == 0
+
+
+@when("an Operator opens the activity snapshot and stream")
+def activity_stream(c):
+    import asyncio
+
+    async def execute():
+        c.snapshot_reply = await c.server.handle_http_request_async(
+            method="GET",
+            path="/api/v1/activity",
+            headers={"authorization": "Bearer " + "o" * 40},
+            body=b"",
+            peer="127.0.0.1",
+        )
+        r = await c.server.handle_http_request_async(
+            method="GET",
+            path="/api/v1/activity/events",
+            headers={"authorization": "Bearer " + "o" * 40},
+            body=b"",
+            peer="127.0.0.1",
+        )
+        c.stream_first = await anext(r.stream)
+        await r.stream.aclose()
+        c.denied_reply = await c.server.handle_http_request_async(
+            method="GET", path="/api/v1/activity", headers={}, body=b"", peer="127.0.0.1"
+        )
+
+    asyncio.run(execute())
+
+
+@then("the stream begins with bounded active-state metadata and releases its slot on close")
+def activity_stream_result(c):
+    assert (
+        c.snapshot_reply.status == 200
+        and b"activity.snapshot" in c.stream_first
+        and c.server.streams == 0
+    )
+
+
+@then("an unauthenticated viewer cannot read activity in the authenticated profile")
+def activity_auth(c):
+    assert c.denied_reply.status == 401
+
+
+@when("the lab generation changes with old activity still recorded")
+def activity_generation(c):
+    c.server.activity.start("p1", c.generation)
+    c.new = c.server.activity.snapshot(c.generation + 1)
+
+
+@then("the next snapshot excludes old-generation activity")
+def activity_generation_result(c):
+    assert c.new["active"] == [] and c.new["generation"] == c.generation + 1
+
+
+@when("more than the activity cap is recorded and time advances past the request lease")
+def activity_expire(c):
+    from unittest.mock import patch
+
+    with patch("minicore_mcp.activity.time.time", return_value=1000):
+        for _ in range(140):
+            c.server.activity.start("p1", c.generation)
+        c.bounded = c.server.activity.snapshot(c.generation)
+    with patch("minicore_mcp.activity.time.time", return_value=1030):
+        c.expired = c.server.activity.snapshot(c.generation)
+
+
+@then("the snapshot stays bounded and abandoned active records disappear")
+def activity_bound(c):
+    assert len(c.bounded["active"]) <= 128 and c.expired["active"] == []

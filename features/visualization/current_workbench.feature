@@ -41,3 +41,9 @@ Feature: Current network workbench interactions
 
   Scenario: Load permitted route evidence in the Routing inspector
     Then the Routing tab displays a node-scoped evidence response and does not confuse transport errors with missing routes
+
+  Scenario: Render the requested synthwave halo from activity rather than node health
+    Then a node activity event creates a bounded halo and accessible cue, overlap stays lit, and completion fades without changing selection
+
+  Scenario: Honor reduced motion for the agent-access ring
+    Then reduced motion uses a steady activity ring and obsolete generations never light a node

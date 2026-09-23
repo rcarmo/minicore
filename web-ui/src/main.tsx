@@ -1,6 +1,7 @@
 import { render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { NetworkScene } from "./graph";
+import { useActivity } from "./activity";
 import { NodeRoutes } from "./routes";
 import { NodeLogs } from "./logs";
 import { NodeConfiguration } from "./configuration";
@@ -20,6 +21,10 @@ function App() {
   const [tab, setTab] = useState("Summary");
   const [stream, setStream] = useState("reconnecting");
   const [lastFetched, setLastFetched] = useState("not fetched");
+  const activityNodes = useActivity(snapshot?.generation ?? 1);
+  useEffect(() => {
+    scene.current?.setActivity(activityNodes);
+  }, [activityNodes, snapshot]);
   const selected = snapshot?.nodes.find((n) => n.id === selectedId);
 
   function select(id: string | null) {
@@ -215,6 +220,7 @@ function App() {
                   </button>{" "}
                   <small>
                     {n.role} / {n.state}
+                    {activityNodes.includes(n.id) ? " · Agent access" : ""}
                   </small>
                 </li>
               ))}

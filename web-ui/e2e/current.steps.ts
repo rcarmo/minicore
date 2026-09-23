@@ -104,7 +104,7 @@ Then(
       .getByRole("button", { name: "Configuration", exact: true })
       .click();
     await expect(
-      page.getByText("Declared baseline — not verified running configuration", {
+      page.getByText("Saved configuration", {
         exact: true,
       }),
     ).toBeVisible();
@@ -834,7 +834,9 @@ Then(
     await expect(
       page.getByRole("table", { name: "BGP endpoint observations" }),
     ).toContainText("not collected");
-    await page.unrouteAll({ behavior: "wait" });
+    await page.getByRole("button", { name: "Pause live routing" }).click();
+    await page.waitForTimeout(1400);
+    await page.unrouteAll({ behavior: "ignoreErrors" });
   },
 );
 

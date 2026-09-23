@@ -243,6 +243,7 @@ export function RoutingLayers({
             <label>
               Prefix{" "}
               <select
+                aria-label="Prefix"
                 value={prefix}
                 onChange={(e) => setPrefix(e.currentTarget.value)}
               >

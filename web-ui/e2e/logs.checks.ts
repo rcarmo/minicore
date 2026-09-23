@@ -63,7 +63,7 @@ export async function followPausePaging({ page }: { page: Page }) {
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   revision = 2;
   await expect(
-    page.getByText("New events or source state available", { exact: false }),
+    page.getByText("New log entries available.", { exact: false }),
   ).toBeVisible({ timeout: 10000 });
   await expect(rows).toContainText("event 1");
   await page

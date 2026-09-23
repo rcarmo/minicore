@@ -33,14 +33,17 @@ class SSHAdapter:
             return result | {"error_code": "backend_not_configured"}
         proc = None
         readers = []
+        total_bytes = 0
 
         async def read(stream):
+            nonlocal total_bytes
             chunks = bytearray()
             while True:
                 block = await stream.read(8192)
                 if not block:
                     break
-                if len(chunks) + len(block) > 65536:
+                total_bytes += len(block)
+                if total_bytes > 65536:
                     raise OverflowError()
                 chunks.extend(block)
             return chunks.decode(errors="replace")
@@ -108,14 +111,43 @@ class SSHAdapter:
                     else:
                         try:
                             payload = json.loads(out)
+                            allowed = {
+                                "status",
+                                "data",
+                                "raw_evidence",
+                                "truncated",
+                                "error_code",
+                                "duration_ms",
+                            }
+                            errors = {
+                                "invalid_arguments",
+                                "denied_operation",
+                                "protocol_not_enabled",
+                                "unknown_interface",
+                                "invalid_protocol",
+                                "denied_destination",
+                                "invalid_count",
+                                "node_unavailable",
+                                "command_failed",
+                                "parse_failure",
+                                "execution_timeout",
+                                "output_limit",
+                            }
+                            if not isinstance(payload, dict) or set(payload) != allowed:
+                                raise ValueError()
                             if (
-                                not isinstance(payload, dict)
-                                or payload.get("status") not in {"ok", "error"}
-                                or type(payload.get("truncated")) is not bool
-                                or not isinstance(payload.get("raw_evidence"), str)
+                                payload["status"] not in {"ok", "error"}
+                                or type(payload["truncated"]) is not bool
+                                or not isinstance(payload["raw_evidence"], str)
+                                or type(payload["duration_ms"]) is not int
                             ):
                                 raise ValueError()
-                            if payload["status"] == "ok" and payload.get("error_code") is not None:
+                            if payload["status"] == "ok":
+                                if payload["error_code"] is not None or not isinstance(
+                                    payload["data"], (dict, list)
+                                ):
+                                    raise ValueError()
+                            elif payload["error_code"] not in errors or payload["data"] is not None:
                                 raise ValueError()
                             result.update(
                                 {
@@ -133,7 +165,8 @@ class SSHAdapter:
         except OSError:
             result["error_code"] = "node_unavailable"
         finally:
-            if proc and proc.returncode is None:
+            if proc:
+                # Descendants may hold pipes after the SSH parent exits; reap the group too.
                 try:
                     os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:

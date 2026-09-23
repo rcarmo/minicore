@@ -381,3 +381,116 @@ def live_activity_metadata(c):
     text = json.dumps(c.activity_events)
     for key in ["destination", "10.200.9.2", "raw_evidence", "loss_percent", "arguments"]:
         assert key not in text
+
+
+@when("a session cancels its in-flight five-packet node probe")
+def cancel_real_ssh(c):
+    import concurrent.futures
+    import threading
+
+    base = "http://127.0.0.1:19000/mcp"
+    h = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
+    r = httpx.post(
+        base,
+        headers=h,
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": {"name": "cancel-real", "version": "1"},
+            },
+        },
+    )
+    h |= {"Mcp-Session-Id": r.headers["mcp-session-id"], "MCP-Protocol-Version": "2025-03-26"}
+    with concurrent.futures.ThreadPoolExecutor() as pool:
+        started = threading.Event()
+
+        def probe():
+            started.set()
+            return httpx.post(
+                base,
+                headers=h,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "ping",
+                        "arguments": {"node_id": "p1", "destination": "10.200.9.2", "count": 5},
+                    },
+                },
+                timeout=20,
+            )
+
+        task = pool.submit(probe)
+        started.wait()
+        time.sleep(0.4)
+        cancel = httpx.post(
+            base,
+            headers=h,
+            json={
+                "jsonrpc": "2.0",
+                "method": "notifications/cancelled",
+                "params": {"requestId": 2},
+            },
+        )
+        assert cancel.status_code == 202
+        c.cancelled_real = task.result().json()
+    httpx.delete(base, headers=h)
+
+
+@then("that call is cancelled and its activity is cleared")
+def real_cancelled(c):
+    assert c.cancelled_real["error"]["code"] == -32800, c.cancelled_real
+    snapshot = httpx.get("http://127.0.0.1:19000/api/v1/activity").json()
+    assert not any(r["node_id"] == "p1" for r in snapshot["active"])
+
+
+@then("a separate route request still succeeds")
+def route_after_cancel(c):
+    r = httpx.get("http://127.0.0.1:19000/api/v1/nodes/p1/routes", timeout=20)
+    assert r.status_code == 200 and r.json()["status"] == "ok"
+
+
+@then("no local diagnostic SSH process remains after cancellation")
+def no_local_ssh(c):
+    p = subprocess.run(
+        ["docker", "exec", "minicore-management-1", "ps", "-o", "args"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "diagnostic@172.30.250.11" not in p.stdout, p.stdout
+
+
+@when("the adapter attempts p1 with a wrong diagnostic private key")
+def wrong_private_key(c):
+    code = """import asyncio,json,tempfile,pathlib,subprocess
+from minicore_mcp.ssh_adapter import SSHAdapter
+from minicore_mcp.model import Topology
+with tempfile.TemporaryDirectory() as d:
+ p=pathlib.Path(d);subprocess.run(['ssh-keygen','-q','-t','ed25519','-N','','-f',str(p/'wrong')],check=True)
+ t=Topology(pathlib.Path('/app/inventory/topology.json'),pathlib.Path('/runtime/observations.json'))
+ a=SSHAdapter(t,pathlib.Path('/run/ssh-client'));a.key=p/'wrong'
+ print(json.dumps(asyncio.run(a.execute('p1',{'operation':'get_routes'}))))
+"""
+    p = subprocess.run(
+        ["docker", "exec", "minicore-management-1", "python", "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert p.returncode == 0, p.stderr
+    c.bad_key = json.loads(p.stdout)
+
+
+@then("the result reports ssh_authentication_failed with no route evidence")
+def bad_private_result(c):
+    assert (
+        c.bad_key["error_code"] == "ssh_authentication_failed"
+        and c.bad_key["data"] is None
+        and not c.bad_key["raw_evidence"]
+    )

@@ -44,3 +44,16 @@ Feature: Collect real router routes through restricted SSH and MCP
     When the external SDK starts a bounded node probe while a viewer watches activity SSE
     Then the viewer observes p1 active and then finished for the same request
     And no probe arguments or evidence payload appears in activity events
+
+  Scenario: Cancel real SSH work and preserve other requests
+    Given diagnostic keys and pinned node host keys have been provisioned
+    And the lab routers and management service are running with the SSH adapter
+    When a session cancels its in-flight five-packet node probe
+    Then that call is cancelled and its activity is cleared
+    And a separate route request still succeeds
+    And no local diagnostic SSH process remains after cancellation
+
+  Scenario: Deny an incorrect diagnostic key without cached evidence
+    Given diagnostic keys and pinned node host keys have been provisioned
+    When the adapter attempts p1 with a wrong diagnostic private key
+    Then the result reports ssh_authentication_failed with no route evidence

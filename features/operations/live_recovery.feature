@@ -18,3 +18,16 @@ Feature: Recover actual fixed faults after process interruption
       | crash  | customer-bgp-failure   |
       | crash  | data-path-degradation  |
       | cancel | core-link-failure      |
+
+  Scenario: A lost God apply response is reconciled by its idempotency key
+    When a God TCP caller disconnects immediately after sending a fixed apply
+    Then a retry with that key returns the single recorded outcome and explicit reset restores baseline
+
+  Scenario: Wire cancellation interrupts a slow verified reset safely
+    When God cancels its reset request while baseline verification is in progress
+    Then the reset reports uncertainty and a new reset recovers without premature generation advancement
+
+  Scenario: The privileged fault key cannot escape its fixed node dispatcher
+    When the real fault key attempts shell configuration wrong-node unknown-scenario PTY and forwarding requests
+    Then every escape is rejected without a mutation or configuration write
+    And Operator evidence cannot disclose HTTP tokens or SSH private keys

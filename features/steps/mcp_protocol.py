@@ -952,3 +952,51 @@ def typed_failure(c):
 @then("the result is the same typed evidence rather than a parse failure")
 def typed_success(c):
     assert c.typed_error is None and c.typed_data == json.loads(c.typed_source)
+
+
+@when("an Operator sends a forbidden mutation with a known request ID")
+def denied_correlated(c):
+    w = c.audit_wire = wire(c)
+    c.denied_audit_response = w.rpc(
+        "tools/call",
+        {
+            "name": "apply_fault",
+            "arguments": {"scenario_id": "core-link-failure", "idempotency_key": "denied-key-001"},
+        },
+        request_id="deny-request-001",
+    )
+
+
+@then(
+    "the authorization audit includes that ID and denial but no credential or controller execution"
+)
+def denied_record(c):
+    import time
+
+    time.sleep(0.05)
+    content = (c.audit_wire.path / "service.log").read_text()
+    rows = []
+    for line in content.splitlines():
+        start = line.find("{")
+        if start >= 0:
+            try:
+                rows.append(json.loads(line[start:]))
+            except ValueError:
+                pass
+    record = next(
+        (
+            r
+            for r in rows
+            if r.get("event") == "authorization_denied"
+            and r.get("rpc_request_id") == "deny-request-001"
+        ),
+        None,
+    )
+    assert c.denied_audit_response[0] == 403 and record, rows
+    assert (
+        record["mode"] == "operator"
+        and record["authorization"] == "denied"
+        and record["generation"] == 1
+    )
+    assert all(t not in content for t in c.audit_wire.tokens.values())
+    assert not any(r.get("event") == "tool_completed" for r in rows)

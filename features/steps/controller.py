@@ -314,3 +314,116 @@ def missing_generation_unverified(c):
         and state["verified"] is False
         and not c.controller.state["results"]
     ), state
+
+
+@when("a God mutation with a known request ID and idempotency key is audited")
+def correlated_audit(c):
+    from umcp_shared import MCPRequestContext, reset_request_context, set_request_context
+
+    c.server.controller = c.controller
+    c.audit_log = []
+    context = MCPRequestContext(
+        transport="streamable-http",
+        request_id="audit-rpc-001",
+        principal="god",
+        headers={"authorization": "Bearer " + "g" * 40},
+    )
+    token = set_request_context(context)
+    try:
+        with patch.object(c.server.logger, "info", side_effect=c.audit_log.append):
+            c.audit_response = asyncio.run(
+                c.server.handle_tools_call_async(
+                    "audit-rpc-001",
+                    {
+                        "name": "apply_fault",
+                        "arguments": {
+                            "scenario_id": "core-link-failure",
+                            "idempotency_key": "audit-fixed-key",
+                        },
+                    },
+                )
+            )
+    finally:
+        reset_request_context(token)
+
+
+@then(
+    "the completion record contains bounded identity time decision duration generation and fixed target"
+)
+def correlated_fields(c):
+    entries = [json.loads(v) for v in c.audit_log if isinstance(v, str) and v.startswith("{")]
+    c.audit_record = next((e for e in entries if e.get("event") == "tool_completed"), None)
+    assert c.audit_record is not None, entries
+    record = c.audit_record
+    assert (
+        record["rpc_request_id"] == "audit-rpc-001"
+        and record["principal"] == "god"
+        and record["mode"] == "god"
+    )
+    assert (
+        record["authorization"] == "allowed"
+        and record["tool"] == "apply_fault"
+        and record["idempotency_key"] == "audit-fixed-key"
+    )
+    assert (
+        record["target"] == {"node_id": "p1", "interface": "to-p2"} and record["error_code"] is None
+    )
+    assert (
+        record["generation"] == 1
+        and record["duration_ms"] >= 0
+        and record["at"]
+        and record["verified"] is True
+    )
+
+
+@then("the durable controller record matches the same idempotency key without credentials")
+def correlate_controller(c):
+    assert c.controller.state["audit"][-1]["request_key"] == c.audit_record["idempotency_key"]
+    assert "g" * 40 not in json.dumps(c.audit_record) and "authorization: Bearer" not in json.dumps(
+        c.audit_record
+    )
+
+
+@when("God supplies an invalid mutation containing credential-shaped arbitrary input")
+def invalid_audit(c):
+    from umcp_shared import MCPRequestContext, reset_request_context, set_request_context
+
+    c.server.controller = c.controller
+    c.audit_log = []
+    token = set_request_context(
+        MCPRequestContext(
+            transport="streamable-http",
+            request_id=72,
+            principal="god",
+            headers={"authorization": "Bearer " + "g" * 40},
+        )
+    )
+    try:
+        with patch.object(c.server.logger, "info", side_effect=c.audit_log.append):
+            c.audit_response = asyncio.run(
+                c.server.handle_tools_call_async(
+                    72,
+                    {
+                        "name": "apply_fault",
+                        "arguments": {
+                            "scenario_id": "core-link-failure",
+                            "idempotency_key": "bad",
+                            "arbitrary": "private-secret-value",
+                        },
+                    },
+                )
+            )
+    finally:
+        reset_request_context(token)
+
+
+@then("audit records invalid_arguments without that input or a node mutation")
+def invalid_audit_safe(c):
+    entries = [json.loads(v) for v in c.audit_log if isinstance(v, str) and v.startswith("{")]
+    record = next((e for e in entries if e.get("event") == "tool_completed"), None)
+    assert record and record["error_code"] == "invalid_arguments", entries
+    assert (
+        not c.executor.calls
+        and "private-secret-value" not in json.dumps(entries)
+        and "g" * 40 not in json.dumps(entries)
+    )

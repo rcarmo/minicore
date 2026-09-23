@@ -51,3 +51,7 @@ Feature: Isolate MCP execution and cancellation between callers
     When a God MCP event stream is open and the credential file is atomically replaced
     Then the old stream reaches EOF before sending another event and cannot reopen
     And the replacement God credential can initialize a fresh session
+
+  Scenario: Denied escalation has a bounded correlated transport audit
+    When an Operator sends a forbidden mutation with a known request ID
+    Then the authorization audit includes that ID and denial but no credential or controller execution

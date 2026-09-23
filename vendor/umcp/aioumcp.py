@@ -2879,6 +2879,12 @@ class AsyncMCPServer:
                 return keep_alive
             params = request_obj.get("params") if isinstance(request_obj.get("params"), dict) else {}
             tool_name = params.get("name") if rpc_method == "tools/call" else None
+            # Minicore: correlate denial before dispatch without exposing request arguments.
+            auth_context_token = set_request_context(MCPRequestContext(
+                transport="streamable-http", request_id=request_obj.get("id"),
+                protocol_version=version, session_id=session_id, principal=principal.name,
+                peer=str(peer) if peer else None, headers=headers,
+            ))
             try:
                 authorized = await self.authorize_request_async(
                     principal,
@@ -2889,6 +2895,8 @@ class AsyncMCPServer:
                 self.logger.exception("HTTP authorization hook failed for rpc_method=%r tool_name=%r", rpc_method, tool_name)
                 await send_response("500 Internal Server Error", origin=allowed_origin)
                 return keep_alive
+            finally:
+                reset_request_context(auth_context_token)
             if not self._validate_http_authorization_result(authorized):
                 self.logger.error("HTTP authorization hook returned invalid result type: %r", type(authorized))
                 await send_response("500 Internal Server Error", origin=allowed_origin)

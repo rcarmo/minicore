@@ -89,3 +89,5 @@ live-recovery:
 	PYTHONPATH=vendor/umcp:mcp-service/src:tests:router-image/dispatcher .venv/bin/behave features/operations/live_recovery.feature
 browser-matrix:
 	cd web-ui && bunx bddgen -c playwright.bdd.config.ts && bunx playwright test -c playwright.matrix.config.ts
+live-ui-faults:
+	cd web-ui && bunx bddgen -c playwright.faults.config.ts && bunx playwright test -c playwright.faults.config.ts

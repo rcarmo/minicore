@@ -5,6 +5,8 @@ import ipaddress
 import json
 import logging
 import re
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
@@ -14,6 +16,7 @@ from umcp_shared import MCPHTTPResponse, get_request_context
 
 from .activity import Activity
 from .configuration import baseline
+from .faults import SCENARIOS as FAULT_SPECS
 from .faults import FaultController
 from .logs import LogStore
 from .model import Topology
@@ -117,6 +120,11 @@ class Server(AsyncMCPServer):
                 json.dumps(
                     {
                         "event": "authorization_denied",
+                        "at": datetime.now(timezone.utc).isoformat(),
+                        "rpc_request_id": self.audit_id(get_request_context().request_id),
+                        "mode": principal.roles[0] if principal else None,
+                        "authorization": "denied",
+                        "generation": self.topology.inventory["generation"],
                         "principal": principal.name if principal else None,
                         "tool": tool_name
                         if isinstance(tool_name, str) and tool_name in INPUTS
@@ -217,10 +225,76 @@ class Server(AsyncMCPServer):
         ):
             raise ValueError("invalid_idempotency_key")
 
+    @staticmethod
+    def audit_id(value):
+        return (
+            value
+            if type(value) is int
+            or isinstance(value, str)
+            and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", value)
+            else None
+        )
+
     async def handle_tools_call_async(self, request_id, params):
+        started = time.monotonic()
+        trace = str(uuid4())
+        name = params.get("name")
+        args = params.get("arguments", {})
+        principal = self.principal()
+        record = {
+            "event": "tool_completed",
+            "at": datetime.now(timezone.utc).isoformat(),
+            "request_id": trace,
+            "rpc_request_id": self.audit_id(request_id),
+            "principal": principal.name if principal else None,
+            "mode": principal.roles[0] if principal else None,
+            "authorization": "allowed" if self.policy.allowed(principal, name) else "denied",
+            "tool": name if isinstance(name, str) and name in INPUTS else "unknown",
+        }
+        validated = False
+        try:
+            if isinstance(name, str) and name in INPUTS:
+                self.validate_arguments(name, args)
+                validated = True
+        except ValueError:
+            pass
+        if validated:
+            if "idempotency_key" in args:
+                record["idempotency_key"] = args["idempotency_key"]
+            if name == "apply_fault":
+                spec = FAULT_SPECS[args["scenario_id"]]
+                record.update(
+                    scenario_id=args["scenario_id"],
+                    target={k: spec[k] for k in ("node_id", "interface")},
+                    parameters=spec["parameters"],
+                )
+        try:
+            response = await self._handle_tools_call(request_id, params, trace)
+            result = response.get("result", {}).get("structuredContent", {})
+            record["error_code"] = result.get("error_code") or response.get("error", {}).get(
+                "message"
+            )
+            record["status"] = result.get("status", "error" if "error" in response else "ok")
+            if name in {"apply_fault", "reset_lab"} and isinstance(result.get("data"), dict):
+                record["verified"] = result["data"].get("verified", False)
+                record["controller_state"] = result["data"].get("state")
+            return response
+        except asyncio.CancelledError:
+            record.update(status="cancelled", error_code="interrupted")
+            raise
+        except Exception:
+            record.update(status="error", error_code="internal_error")
+            raise
+        finally:
+            record.update(
+                duration_ms=round((time.monotonic() - started) * 1000),
+                generation=self.topology.inventory["generation"],
+            )
+            self.logger.info(json.dumps(record))
+
+    async def _handle_tools_call(self, request_id, params, trace):
         name, args = params.get("name"), params.get("arguments", {})
         p = self.principal()
-        trace = str(uuid4())
         if not isinstance(name, str) or not self.policy.allowed(p, name):
             return self.create_response(
                 request_id, error=self.create_error(-32001, "authorization_denied")

@@ -25,3 +25,5 @@ web-ui/.features-gen/
 web-ui/.features-logs-gen/
 reports/
 web-ui/.features-boot-gen/
+
+web-ui/.features-faults/

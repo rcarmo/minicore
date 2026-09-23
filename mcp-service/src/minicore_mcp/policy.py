@@ -54,6 +54,8 @@ class Policy:
 
     @staticmethod
     def allowed(principal, tool):
-        return principal is not None and (
-            tool in OPERATOR or ("god" in principal.roles and tool in GOD)
+        return (
+            principal is not None
+            and isinstance(tool, str)
+            and (tool in OPERATOR or ("god" in principal.roles and tool in GOD))
         )

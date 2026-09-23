@@ -1914,42 +1914,37 @@ class AsyncMCPServer:
         text = str(message).replace("\x00", "")
         return text[:4096]
 
-    async def _register_request_cancellation(self, request_id: str | int | None, progress_token: str | int | None) -> tuple[MCPCancellationState, dict[str, Any]]:
+    @staticmethod
+    def _request_key(context: MCPRequestContext, request_id):
+        # Minicore: IDs are meaningful only within their authenticated session.
+        # Stateless requests use a per-connection peer identity; no cross-connection cancellation.
+        scope = context.session_id or context.peer or "local"
+        return (context.principal, scope, type(request_id).__name__, request_id)
+
+    async def _register_request_cancellation(self, request_id, progress_token, context):
         state = MCPCancellationState()
-        entry = {"state": state, "task": current_task(), "progress_token": progress_token}
+        key = self._request_key(context, request_id)
+        entry = {"state": state, "task": current_task(), "key": key}
         async with self._request_registry_lock:
-            if request_id is not None:
-                self._active_requests_by_id[request_id] = entry
-            if progress_token is not None and request_id is not None:
-                self._active_requests_by_progress_token.setdefault(progress_token, set()).add(request_id)
+            if key in self._active_requests_by_id:
+                raise ValueError("Duplicate active request id")
+            self._active_requests_by_id[key] = entry
         return state, entry
 
-    async def _cleanup_request_cancellation(self, request_id: str | int | None, progress_token: str | int | None, entry: dict[str, Any]) -> None:
+    async def _cleanup_request_cancellation(self, request_id, progress_token, entry):
         async with self._request_registry_lock:
-            if request_id is not None and self._active_requests_by_id.get(request_id) is entry:
-                self._active_requests_by_id.pop(request_id, None)
-            if progress_token is not None and request_id is not None:
-                request_ids = self._active_requests_by_progress_token.get(progress_token)
-                if request_ids is not None:
-                    request_ids.discard(request_id)
-                    if not request_ids:
-                        self._active_requests_by_progress_token.pop(progress_token, None)
+            key = entry["key"]
+            if self._active_requests_by_id.get(key) is entry:
+                self._active_requests_by_id.pop(key, None)
 
-    async def _mark_request_cancelled(self, cancel_key: str | int | None) -> None:
-        if cancel_key is None or isinstance(cancel_key, bool) or not isinstance(cancel_key, (str, int)):
+    async def _mark_request_cancelled(self, cancel_key):
+        if cancel_key is None or not is_valid_jsonrpc_id(cancel_key):
             return
+        key = self._request_key(get_request_context(), cancel_key)
         async with self._request_registry_lock:
-            entries: list[dict[str, Any]] = []
-            direct = self._active_requests_by_id.get(cancel_key)
-            if direct is not None:
-                entries.append(direct)
-            for request_id in self._active_requests_by_progress_token.get(cancel_key, ()):
-                entry = self._active_requests_by_id.get(request_id)
-                if entry is not None and entry not in entries:
-                    entries.append(entry)
-        for entry in entries:
-            state = entry["state"]
-            state.mark_cancelled()
+            entry = self._active_requests_by_id.get(key)
+        if entry is not None:
+            entry["state"].mark_cancelled()
             task = entry.get("task")
             if task is not None and not task.done():
                 task.cancel()
@@ -2058,7 +2053,10 @@ class AsyncMCPServer:
         cancellation_state = None
         registry_entry = None
         if request_id is not None:
-            cancellation_state, registry_entry = await self._register_request_cancellation(request_id, progress_token)
+            try:
+                cancellation_state, registry_entry = await self._register_request_cancellation(request_id, progress_token, context)
+            except ValueError as exc:
+                return self.create_response(request_id, None, self.create_error(-32600, str(exc)))
         runtime_token = set_request_runtime(MCPRequestRuntime(progress_token=progress_token, cancellation=cancellation_state, progress_callback=self.notify_progress))
         token = set_request_context(context)
         try:
@@ -2073,6 +2071,8 @@ class AsyncMCPServer:
                 return None
             if method == "initialize":
                 return self.handle_initialize(request_id, params)
+            elif method == "ping":
+                return self.create_response(request_id, {})
             elif method == "tools/list":
                 return self.handle_tools_list(request_id, params)
             elif method == "tools/call":
@@ -2863,6 +2863,9 @@ class AsyncMCPServer:
                     return keep_alive
 
             session_id = validated[0] if rpc_method != "initialize" and validated is not None else None
+            if rpc_method == "notifications/cancelled" and session_id is None:
+                await send_response("403 Forbidden", origin=allowed_origin)
+                return keep_alive
             is_response = rpc_method is None and "id" in request_obj and is_valid_jsonrpc_response(request_obj)
             is_notification = rpc_method is not None and "id" not in request_obj
             if is_response:
@@ -2897,7 +2900,7 @@ class AsyncMCPServer:
                 protocol_version=version,
                 session_id=session_id,
                 principal=principal.name,
-                peer=peer[0] if peer else None,
+                peer=str(peer) if peer else None,
                 headers=headers,
             )
             response = await self.process_request_async(dumps(request_obj), context=context)

@@ -76,9 +76,21 @@ class Server(AsyncMCPServer):
         return self.policy.authenticate(headers)
 
     def authorize_request(self, principal, *, rpc_method, tool_name):
-        allowed = principal is not None and (
-            rpc_method in {None, "initialize", "notifications/initialized", "ping", "tools/list"}
-            or (rpc_method == "tools/call" and self.policy.allowed(principal, tool_name))
+        allowed = (
+            principal is not None
+            and isinstance(rpc_method, (str, type(None)))
+            and (
+                rpc_method
+                in {
+                    None,
+                    "initialize",
+                    "notifications/initialized",
+                    "notifications/cancelled",
+                    "ping",
+                    "tools/list",
+                }
+                or (rpc_method == "tools/call" and self.policy.allowed(principal, tool_name))
+            )
         )
         if not allowed:
             self.logger.warning(
@@ -86,7 +98,9 @@ class Server(AsyncMCPServer):
                     {
                         "event": "authorization_denied",
                         "principal": principal.name if principal else None,
-                        "tool": tool_name if tool_name in INPUTS else "unknown",
+                        "tool": tool_name
+                        if isinstance(tool_name, str) and tool_name in INPUTS
+                        else "unknown",
                     }
                 )
             )

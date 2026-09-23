@@ -74,3 +74,5 @@ stop-logs:
 	bun scripts/log-watcher.ts stop
 bdd-boot:
 	cd web-ui && bunx bddgen -c playwright.boot.config.ts && bunx playwright test -c playwright.boot.config.ts
+mcp-client:
+	PYTHONPATH=$(PYTHONPATH) .venv/bin/behave features/integration/mcp_independent_client.feature

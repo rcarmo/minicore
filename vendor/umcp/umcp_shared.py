@@ -14,7 +14,7 @@ SINGLETON_HTTP_HEADERS = frozenset({
     "host",
     "authorization",
     "origin",
-    "accept",
+    # Accept is list-valued: repeated fields can be combined safely (RFC 9110).
     "content-type",
     "mcp-protocol-version",
     "mcp-session-id",

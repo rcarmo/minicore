@@ -4,6 +4,7 @@ import asyncio
 import copy
 import json
 import os
+import re
 from datetime import datetime, timezone
 
 SCENARIOS = {
@@ -63,6 +64,40 @@ class FaultController:
                     )
                 ):
                     raise ValueError()
+                intents = loaded.get("target_intents", {})
+                if not isinstance(intents, dict) or len(intents) > 128:
+                    raise ValueError()
+                for key, intent in intents.items():
+                    if (
+                        not isinstance(key, str)
+                        or not re.fullmatch("[A-Za-z0-9_-]{8,64}", key)
+                        or not isinstance(intent, dict)
+                    ):
+                        raise ValueError()
+                    request = intent.get("request")
+                    scenario = intent.get("scenario")
+                    if (
+                        not isinstance(scenario, str)
+                        or scenario not in self.scenarios
+                        or not isinstance(request, dict)
+                        or set(request) != {"mode", "target_type", "target_id", "idempotency_key"}
+                    ):
+                        raise ValueError()
+                    if (
+                        request["idempotency_key"] != key
+                        or request["mode"] not in {"zap", "dice"}
+                        or intent.get("phase", "completed") not in {"selected", "completed"}
+                    ):
+                        raise ValueError()
+                    spec = self.scenarios[scenario]
+                    if (
+                        request["target_type"] != spec.get("target_type")
+                        or request["target_id"] != spec.get("target_id")
+                        or not scenario.startswith(
+                            "zap-" if request["mode"] == "zap" else "corrupt-"
+                        )
+                    ):
+                        raise ValueError()
                 self.state = loaded
                 if self.state["state"] != "baseline":
                     self.state.update(state="reconciliation_required", verified=False)
@@ -87,6 +122,7 @@ class FaultController:
                     scenario_id=None,
                     results={},
                     audit=[],
+                    target_intents={},
                     error_code="corrupt_state",
                 )
         self.topology.inventory["generation"] = self.state["generation"]
@@ -135,6 +171,9 @@ class FaultController:
     def record(self, operation, scenario, key, principal, error):
         previous_results = copy.deepcopy(self.state["results"])
         previous_audit = copy.deepcopy(self.state["audit"])
+        previous_intents = copy.deepcopy(self.state.get("target_intents", {}))
+        if key in self.state.get("target_intents", {}):
+            self.state["target_intents"][key]["phase"] = "completed"
         self.state["audit"].append(
             {
                 "at": datetime.now(timezone.utc).isoformat(),
@@ -160,6 +199,7 @@ class FaultController:
         except OSError:
             self.state["results"] = previous_results
             self.state["audit"] = previous_audit
+            self.state["target_intents"] = previous_intents
             raise
         return result
 
@@ -242,7 +282,17 @@ class FaultController:
                 return self.response("persistence_failed")
             try:
                 # On corrupt/uncertain state remove only the three predefined Minicore effects.
-                for target in [scenario] if scenario in self.scenarios else list(self.scenarios):
+                targets = (
+                    [scenario]
+                    if scenario in self.scenarios
+                    else sorted(
+                        self.scenarios,
+                        key=lambda key: 0
+                        if isinstance(key, str) and key.startswith("zap-node-")
+                        else 1,
+                    )
+                )
+                for target in targets:
                     response = await self.executor.mutate(target, "reset")
                     if not response.get("ok"):
                         raise RuntimeError("reset failed")

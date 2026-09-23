@@ -24,6 +24,8 @@ def catalogue(inventory):
         }
     for kind, objects in [("node", inventory["nodes"]), ("link", inventory["links"])]:
         for obj in objects:
+            if kind == "node" and obj["kind"] != "router":
+                continue
             for effect in ["delay", "loss"]:
                 result[f"corrupt-{effect}-{kind}-{obj['id']}"] = {
                     "target_type": kind,
@@ -86,13 +88,15 @@ def commands(inventory, scenario, action):
                 "blackhole",
                 spec["parameters"]["prefix"],
                 "metric",
-                "42760",
+                "1",
                 "proto",
-                "186",
+                "198",
             ]
         ]
     rows = []
     for e in endpoints(inventory, spec):
+        if spec["effect"] in {"delay", "loss"} and nodes[e["node"]]["kind"] != "router":
+            continue
         base = ["docker", "exec", container(e["node"])]
         if spec["effect"] == "link_down":
             rows.append(

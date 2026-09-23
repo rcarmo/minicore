@@ -573,6 +573,11 @@ class Server(AsyncMCPServer):
         if old and old["request"] != args:
             return self.controller.response("idempotency_conflict")
         if old:
+            if (
+                key not in self.controller.state["results"]
+                and old.get("phase", "completed") == "completed"
+            ):
+                return self.controller.response("idempotency_expired")
             chosen = old["scenario"]
         else:
             if self.controller.state["state"] != "baseline":
@@ -584,7 +589,7 @@ class Server(AsyncMCPServer):
             if key in self.controller.state["results"]:
                 return self.controller.response("idempotency_conflict")
             chosen = secrets.choice(choices)
-            intents[key] = {"request": args, "scenario": chosen}
+            intents[key] = {"request": args, "scenario": chosen, "phase": "selected"}
             while len(intents) > 128:
                 intents.pop(next(iter(intents)))
             try:

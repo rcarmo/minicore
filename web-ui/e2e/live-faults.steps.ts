@@ -164,3 +164,59 @@ Then(
     );
   },
 );
+
+When(
+  "God arms lightning and clicks pe1 in the main graph",
+  async ({ state }) => {
+    await state.god
+      .getByRole("button", { name: "Lightning — kill target" })
+      .click();
+    await state.god
+      .locator(".graph-label")
+      .filter({ hasText: /^PE1$/ })
+      .click();
+  },
+);
+Then(
+  "the pe1 container stops and the toolbar returns to Inspect",
+  async ({ state }) => {
+    await expect(
+      state.god.getByRole("status", { name: "Fault mode" }),
+    ).toContainText("active", { timeout: 30000 });
+    await expect(
+      state.god.getByRole("button", { name: "Inspect", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    const result = await call("god", "get_fault_state");
+    expect(result.data.scenario_id).toBe("zap-node-pe1");
+    expect(result.data.verified).toBe(true);
+    const child = spawn("docker", [
+      "inspect",
+      "--format",
+      "{{.State.Running}}",
+      "minicore-pe1-1",
+    ]);
+    let output = "";
+    child.stdout.on("data", (b) => (output += b));
+    await new Promise((r) => child.on("close", r));
+    expect(output.trim()).toBe("false");
+    await expect(
+      state.operator.getByRole("button", { name: "Lightning — kill target" }),
+    ).toHaveCount(0);
+  },
+);
+Then(
+  "restoring through the toolbar restarts pe1 and clears the fault",
+  async ({ state }) => {
+    await state.god.getByRole("button", { name: "Restore lab" }).click();
+    await expect(
+      state.god.getByRole("status", { name: "Fault mode" }),
+    ).not.toContainText("Applying", { timeout: 90000 });
+    await expect(state.god.getByLabel("Controller ground truth")).toContainText(
+      "baseline",
+      { timeout: 90000 },
+    );
+    const result = await call("god", "get_fault_state");
+    expect(result.data.verified).toBe(true);
+    expect(result.generation).toBe(state.generation! + 1);
+  },
+);

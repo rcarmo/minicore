@@ -18,7 +18,8 @@ export function redaction() {
   ].join("\n");
   const entries = parseLines(text, "p1:incarnation", ["configured"]);
   expect(entries.length).toBe(2);
-  const json = JSON.stringify(entries);
+  // Entry hashes may contain short hex substrings; inspect the log content.
+  const json = JSON.stringify(entries.map((entry) => entry.message));
   for (const s of [
     "secret",
     "abc",

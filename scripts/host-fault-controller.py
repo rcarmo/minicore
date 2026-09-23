@@ -20,6 +20,43 @@ from minicore_mcp.model import Topology  # noqa: E402
 inventory = Topology(ROOT / "inventory/topology.json", ROOT / "runtime/observations.json").inventory
 specs = catalogue(inventory)
 lock = asyncio.Lock()
+JOURNAL = ROOT / "runtime/host-fault-journal/state.json"
+
+
+def save_ownership(value):
+    JOURNAL.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temp = JOURNAL.with_suffix(".tmp")
+    with temp.open("w") as handle:
+        json.dump(value, handle)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(temp, 0o600)
+    os.replace(temp, JOURNAL)
+    fd = os.open(JOURNAL.parent, os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def ownership():
+    if not JOURNAL.exists():
+        return None
+    if JOURNAL.stat().st_size > 4096:
+        raise ValueError("journal_corrupt")
+    value = json.loads(JOURNAL.read_text())
+    if not isinstance(value, dict) or value.get("scenario") not in specs:
+        raise ValueError("journal_corrupt")
+    return value
+
+
+def clear_ownership():
+    JOURNAL.unlink()
+    fd = os.open(JOURNAL.parent, os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 async def run(argv):
@@ -30,19 +67,35 @@ async def run(argv):
         stderr=asyncio.subprocess.PIPE,
         start_new_session=True,
     )
+    total = 0
+    readers = []
     try:
         async with asyncio.timeout(12):
 
             async def read(stream):
-                data = await stream.read(65537)
-                if len(data) > 65536:
-                    raise ValueError("output_limit")
-                return data
+                nonlocal total
+                chunks = []
+                while True:
+                    data = await stream.read(8192)
+                    if not data:
+                        return b"".join(chunks)
+                    total += len(data)
+                    if total > 65536:
+                        raise ValueError("output_limit")
+                    chunks.append(data)
 
-            out, err = await asyncio.gather(read(proc.stdout), read(proc.stderr))
+            readers = [
+                asyncio.create_task(read(proc.stdout)),
+                asyncio.create_task(read(proc.stderr)),
+            ]
+            out, err = await asyncio.gather(*readers)
             await proc.wait()
             return proc.returncode, out, err
     finally:
+        for task in readers:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*readers, return_exceptions=True)
         if proc.returncode is None:
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
@@ -55,7 +108,21 @@ def container(node):
     return "minicore-" + next(n["service"] for n in inventory["nodes"] if n["id"] == node) + "-1"
 
 
-async def inspect(spec):
+def netem_matches(options, effect):
+    delay = options.get("delay", 0)
+    if isinstance(delay, dict):
+        delay = delay.get("delay", 0) * 1000000
+    loss = options.get("loss-random", options.get("loss", 0))
+    if isinstance(loss, dict):
+        loss = loss.get("loss", 0) * 100
+    return (
+        abs(delay - 100000) < 1 and loss == 0
+        if effect == "delay"
+        else abs(loss - 25) < 0.01 and delay == 0
+    )
+
+
+async def inspect(spec, owned=False):
     if spec["effect"] == "stop":
         code, out, _ = await run(
             ["docker", "inspect", "--format", "{{.State.Running}}", container(spec["target_id"])]
@@ -78,10 +145,19 @@ async def inspect(spec):
         )
         if code:
             raise ValueError("observation_failed")
-        return [
-            any(r.get("type") == "blackhole" and r.get("metric") == 42760 for r in json.loads(out))
-        ]
+        data = json.loads(out)
+        matching = [r for r in data if r.get("type") == "blackhole"]
+        if any(r.get("metric") != 1 or str(r.get("protocol")) != "198" for r in matching):
+            raise ValueError("foreign_route")
+        if matching and not owned:
+            raise ValueError("foreign_route")
+        return [bool(matching)]
     for e in endpoints(inventory, spec):
+        if (
+            spec["effect"] in {"delay", "loss"}
+            and next(n["kind"] for n in inventory["nodes"] if n["id"] == e["node"]) != "router"
+        ):
+            continue
         argv = ["docker", "exec", container(e["node"])]
         code, out, _ = await run(
             argv
@@ -97,11 +173,17 @@ async def inspect(spec):
         if spec["effect"] == "link_down":
             values.append("UP" in data[0]["flags"])
         else:
-            if any(q.get("root") and q.get("kind") not in {"noqueue", "netem"} for q in data):
+            roots = [q for q in data if q.get("root") and q.get("kind") != "noqueue"]
+            if roots and (
+                not owned
+                or any(q.get("handle") != "1234:" or q.get("kind") != "netem" for q in roots)
+            ):
                 raise ValueError("foreign_qdisc")
-            values.append(
-                any(q.get("handle") == "1234:" and q.get("kind") == "netem" for q in data)
-            )
+            for q in roots:
+                opts = q.get("options", {})
+                if not netem_matches(opts, spec["effect"]):
+                    raise ValueError("foreign_qdisc")
+            values.append(bool(roots))
     return values
 
 
@@ -109,8 +191,18 @@ async def execute(value):
     spec = specs[value["scenario"]]
     action = value["action"]
     effect = spec["effect"]
-    before = await inspect(spec)
+    journal = ownership()
+    if action == "reset" and (journal is None or journal["scenario"] != value["scenario"]):
+        return {"ok": True, "verified": True, "error_code": None}
+    if action == "apply" and journal and journal["scenario"] != value["scenario"]:
+        return {"ok": False, "verified": False, "error_code": "fault_conflict"}
+    before = await inspect(spec, owned=journal is not None)
     desired = action == "reset" if effect in {"stop", "link_down"} else action == "apply"
+    if action == "apply" and journal is None:
+        baseline = all(before) if effect in {"stop", "link_down"} else not any(before)
+        if not baseline:
+            return {"ok": False, "verified": False, "error_code": "baseline_unverified"}
+        save_ownership({"scenario": value["scenario"], "phase": "applying"})
     cmds = commands(inventory, value["scenario"], action)
     for index, argv in enumerate(cmds):
         if before[index] == desired:
@@ -118,7 +210,12 @@ async def execute(value):
         code, _, _ = await run(argv)
         if code:
             return {"ok": False, "verified": False, "error_code": "mutation_failed"}
-    verified = all(v == desired for v in await inspect(spec))
+    verified = all(v == desired for v in await inspect(spec, owned=True))
+    if verified:
+        if action == "reset":
+            clear_ownership()
+        else:
+            save_ownership({"scenario": value["scenario"], "phase": "active"})
     return {
         "ok": verified,
         "verified": verified,
@@ -140,8 +237,24 @@ async def client(reader, writer):
             async with lock:
                 try:
                     result = await execute(value)
-                except Exception:
-                    result = {"ok": False, "verified": False, "error_code": "host_execution_failed"}
+                except Exception as exc:
+                    import traceback
+
+                    traceback.print_exc()
+                    code = (
+                        str(exc)
+                        if isinstance(exc, ValueError)
+                        and str(exc)
+                        in {
+                            "foreign_qdisc",
+                            "foreign_route",
+                            "journal_corrupt",
+                            "observation_failed",
+                            "output_limit",
+                        }
+                        else "host_execution_failed"
+                    )
+                    result = {"ok": False, "verified": False, "error_code": code}
         writer.write(json.dumps(result).encode() + b"\n")
         await writer.drain()
     except Exception:
@@ -162,7 +275,9 @@ async def main():
         path.unlink()
     server = await asyncio.start_unix_server(client, str(path), limit=2048)
     os.chmod(path, 0o660)
-    os.chown(path, 10001, 10001)
+    # Provisioned setgid directory supplies GID 10001 without a root daemon.
+    if path.stat().st_gid != 10001:
+        raise RuntimeError("Provision host-control directory with group 10001")
     async with server:
         await server.serve_forever()
 

@@ -18,7 +18,8 @@ test("redacts before persistence and strips terminal control", () => {
   ].join("\n");
   const entries = parseLines(text, "p1:incarnation", ["configured"]);
   expect(entries.length).toBe(2);
-  const json = JSON.stringify(entries);
+  // Redaction applies to log content; a SHA-256 entry ID can contain "abc" by chance.
+  const json = JSON.stringify(entries.map((entry) => entry.message));
   for (const s of [
     "secret",
     "abc",

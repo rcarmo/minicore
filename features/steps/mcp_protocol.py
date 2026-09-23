@@ -930,3 +930,25 @@ def replacement_session(c):
     c.revocation_wire.tokens["god"] = "z" * 40
     session, version = c.revocation_wire.initialize(role="god")
     assert session and version == "2025-03-26"
+
+
+@when('the node normalises "{operation}" output "{output}"')
+def typed_node_output(c, operation, output):
+    from node_dispatcher import normalise
+
+    c.typed_source = output
+    try:
+        c.typed_data = normalise(operation, output)
+        c.typed_error = None
+    except ValueError as exc:
+        c.typed_error = str(exc)
+
+
+@then("the operation fails parsing rather than claiming healthy empty evidence")
+def typed_failure(c):
+    assert c.typed_error == "parse_failure"
+
+
+@then("the result is the same typed evidence rather than a parse failure")
+def typed_success(c):
+    assert c.typed_error is None and c.typed_data == json.loads(c.typed_source)

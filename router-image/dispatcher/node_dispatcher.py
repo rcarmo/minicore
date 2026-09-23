@@ -154,13 +154,39 @@ def run_bounded(argv, deadline=10, limit=LIMIT):
 def normalise(operation, output):
     if operation != "ping":
         data = json.loads(output)
-        if not isinstance(data, (dict, list)):
+        if operation == "get_interfaces":
+            if not isinstance(data, list) or any(
+                not isinstance(item, dict)
+                or not isinstance(item.get("ifname"), str)
+                or not isinstance(item.get("flags"), list)
+                for item in data
+            ):
+                raise ValueError("parse_failure")
+        elif not isinstance(data, dict):
             raise ValueError("parse_failure")
+        if operation == "get_routes":
+            for prefix, routes in data.items():
+                try:
+                    ipaddress.IPv4Network(prefix, strict=True)
+                except ValueError:
+                    raise ValueError("parse_failure") from None
+                if not isinstance(routes, list) or any(
+                    not isinstance(route, dict) for route in routes
+                ):
+                    raise ValueError("parse_failure")
         return data
     match = re.search(
         r"(\d+) packets transmitted, (\d+) (?:packets )?received, ([\d.]+)% packet loss", output
     )
     if not match:
+        raise ValueError("parse_failure")
+    sent, received, loss = int(match[1]), int(match[2]), float(match[3])
+    if (
+        not 1 <= sent <= 5
+        or not 0 <= received <= sent
+        or not 0 <= loss <= 100
+        or abs(loss - 100 * (sent - received) / sent) > 1
+    ):
         raise ValueError("parse_failure")
     rtt = re.search(r"(?:round-trip|rtt) [^=]+= ([\d.]+)/([\d.]+)/([\d.]+)", output)
     return {

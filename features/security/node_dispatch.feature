@@ -58,3 +58,27 @@ Feature: Validate node requests independently of the MCP client
     When the node fault dispatcher compiles the three approved scenarios
     Then commands address only p1 to-p2, ce1 to-pe1 and ce1 to-host1
     And no caller argument selects a management interface or executable
+
+  Scenario Outline: Reject JSON with the wrong operation shape
+    When the node normalises "<operation>" output "<output>"
+    Then the operation fails parsing rather than claiming healthy empty evidence
+    Examples:
+      | operation      | output                                        |
+      | get_routes     | []                                            |
+      | get_routes     | {"10.200.8.0/29":"absent"}                  |
+      | get_interfaces | {}                                            |
+      | get_interfaces | ["mgmt0"]                                    |
+      | get_neighbors  | []                                            |
+      | ping           | 2 packets transmitted, 3 received, 0% packet loss |
+      | ping           | 2 packets transmitted, 0 received, 0% packet loss |
+
+  Scenario Outline: Preserve valid empty and down observations without inferring failure
+    When the node normalises "<operation>" output "<output>"
+    Then the result is the same typed evidence rather than a parse failure
+    Examples:
+      | operation      | output                                                              |
+      | get_routes     | {}                                                                  |
+      | get_interfaces | []                                                                  |
+      | get_interfaces | [{"ifname":"to-p1","flags":[],"operstate":"DOWN"}]         |
+      | get_neighbors  | {}                                                                  |
+      | get_neighbors  | {"ipv4Unicast":{"peers":{"10.254.0.2":{"state":"Idle"}}}} |

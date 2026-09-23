@@ -1,3 +1,4 @@
+@implemented @browser
 @management-slice
 Feature: Run the initial management and MCP container
   Scenario: Display the complete declared network

@@ -1,4 +1,6 @@
-@initial @model
+@planned
+
+@model
 Feature: One representation drives containers and the network view
   Scenario: Render the complete topology before starting routers
     Given the eight-node topology from the brief is loaded

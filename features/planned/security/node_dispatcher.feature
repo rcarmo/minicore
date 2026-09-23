@@ -1,4 +1,6 @@
-@planned @security @ssh
+@planned
+
+@security @ssh
 Feature: Restrict node-side execution independently of MCP
   Scenario: Enforce diagnostic account restrictions
     Given the service connects with its diagnostic identity and pinned host key

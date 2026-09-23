@@ -1,4 +1,6 @@
-@planned @network
+@planned
+
+@network
 Feature: Forward customer packets through a plain IP provider network
   Scenario: Establish the routing baseline
     Given all eight nodes have their generated baseline configurations

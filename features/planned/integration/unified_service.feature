@@ -1,3 +1,5 @@
+@planned
+
 Feature: Expose Minicore through one application service
   As a lab consumer
   I want one service endpoint for the UI, topology updates, and MCP

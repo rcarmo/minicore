@@ -1,6 +1,7 @@
+import { test } from "./host.steps";
 import { expect } from "@playwright/test";
 import { createBdd } from "playwright-bdd";
-const { Given, When, Then } = createBdd();
+const { Given, When, Then } = createBdd(test);
 Given("the initial management container is ready", async ({ request }) => {
   expect((await request.get("/healthz")).ok()).toBe(true);
 });

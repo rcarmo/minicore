@@ -1,3 +1,5 @@
+@planned
+
 @god @mcp @scenario
 Feature: Control predefined lab faults in God mode
   As an authorized lab controller

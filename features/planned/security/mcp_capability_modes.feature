@@ -1,3 +1,5 @@
+@planned
+
 @security @mcp
 Feature: Enforce Operator and God capability modes
   As the owner of the synthetic network lab

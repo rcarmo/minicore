@@ -1,3 +1,5 @@
+@planned
+
 @operator @mcp
 Feature: Issue bounded diagnostic commands in Operator mode
   As an Operator MCP client

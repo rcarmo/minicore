@@ -1,4 +1,6 @@
-@logs @initial
+@planned
+
+@logs
 Feature: Stream real node container logs without container control in the viewer
   As a lab viewer
   I want recent logs for the selected node and live update notifications

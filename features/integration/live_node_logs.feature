@@ -1,3 +1,4 @@
+@external
 @live-node-logs
 Feature: Inspect real node startup logs from the running lab
   Scenario: Observe real FRR startup errors through the node inspector

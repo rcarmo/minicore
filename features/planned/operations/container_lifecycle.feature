@@ -1,4 +1,6 @@
-@initial @compose
+@planned
+
+@compose
 Feature: Manage known lab containers from the host
   Scenario: Start management without starting routers
     Given generated Compose configuration is current

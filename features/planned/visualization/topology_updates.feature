@@ -1,4 +1,6 @@
-@initial @browser @sse
+@planned
+
+@sse
 Feature: Reconcile periodic snapshots and topology notifications
   Scenario: Load authoritative expected and observed topology
     When the customer opens the network view

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 
 function pageFor(
   node: string,
@@ -31,9 +31,7 @@ function pageFor(
   };
 }
 
-test("follow, pause, refresh, pagination, text-only rendering and node switch", async ({
-  page,
-}) => {
+export async function followPausePaging({ page }: { page: Page }) {
   let revision = 1;
   await page.route(
     /\/api\/v1\/nodes\/[^/]+\/logs(?:[/?].*)?$/,
@@ -89,9 +87,9 @@ test("follow, pause, refresh, pagination, text-only rendering and node switch", 
   expect(await page.evaluate(() => Boolean((window as any).compromised))).toBe(
     false,
   );
-});
+}
 
-test("polling continues when log SSE fails", async ({ page }) => {
+export async function pollingFallback({ page }: { page: Page }) {
   let revision = 1;
   await page.route(/\/api\/v1\/nodes\/p1\/logs(?:[/?].*)?$/, (route) =>
     route.request().url().endsWith("/events")
@@ -108,9 +106,9 @@ test("polling continues when log SSE fails", async ({ page }) => {
   await expect(
     page.getByText("reconnecting; polling continues", { exact: false }),
   ).toBeVisible();
-});
+}
 
-test("late responses cannot cross a node selection", async ({ page }) => {
+export async function selectionRace({ page }: { page: Page }) {
   await page.route(
     /\/api\/v1\/nodes\/[^/]+\/logs(?:[/?].*)?$/,
     async (route) => {
@@ -133,4 +131,4 @@ test("late responses cannot cross a node selection", async ({ page }) => {
   await expect(page.getByLabel("Node log entries")).not.toContainText(
     "p1 only",
   );
-});
+}

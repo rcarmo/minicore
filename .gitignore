@@ -24,3 +24,4 @@ web-ui/.features-gen/
 .mypy_cache/
 web-ui/.features-logs-gen/
 reports/
+web-ui/.features-boot-gen/

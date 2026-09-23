@@ -78,3 +78,7 @@ Feature: Generate and manage the declared containers from the host only
   Scenario: Preserve data and management separation in generated deployment
     Then generated data bridges have no host gateway or masquerading
     And router startup blocks management forwarding before starting daemons
+
+  Scenario: Build dependencies resolve through exact release version locks
+    Then management and router Dockerfiles use checked-in exact APK version locks
+    And development Python installation uses a fully version-pinned release lock

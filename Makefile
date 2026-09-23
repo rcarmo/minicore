@@ -91,3 +91,7 @@ browser-matrix:
 	cd web-ui && bunx bddgen -c playwright.bdd.config.ts && bunx playwright test -c playwright.matrix.config.ts
 live-ui-faults:
 	cd web-ui && bunx bddgen -c playwright.faults.config.ts && bunx playwright test -c playwright.faults.config.ts
+bootstrap:
+	$(PYTHON) -m venv .venv
+	.venv/bin/pip install -r requirements-dev.lock
+	cd web-ui && bun install --frozen-lockfile

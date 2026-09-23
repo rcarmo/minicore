@@ -1,0 +1,5 @@
+iptables=1.8.10-r3
+libnftnl=1.2.6-r0
+openssh-keygen=9.7_p1-r5
+openssh-server=9.7_p1-r5
+openssh-server-common=9.7_p1-r5

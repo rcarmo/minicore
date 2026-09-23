@@ -498,3 +498,45 @@ Then(
     }
   },
 );
+
+Then(
+  "management and router Dockerfiles use checked-in exact APK version locks",
+  async () => {
+    for (const [dockerfile, files] of [
+      ["mcp-service/Dockerfile", ["management-apk.lock"]],
+      [
+        "router-image/Dockerfile",
+        ["router-build-apk.lock", "router-runtime-apk.lock"],
+      ],
+    ] as [string, string[]][]) {
+      const text = await readFile(join(root, dockerfile), "utf8");
+      for (const file of files) {
+        expect(text).toContain("locks/" + file);
+        const lock = await readFile(join(root, "locks", file), "utf8");
+        expect(
+          lock
+            .trim()
+            .split("\n")
+            .every((line) => /^[a-zA-Z0-9+_.-]+=[^\s=]+$/.test(line)),
+        ).toBe(true);
+      }
+      expect(text).not.toMatch(/apk add --no-cache (openssh|autoconf)/);
+    }
+  },
+);
+Then(
+  "development Python installation uses a fully version-pinned release lock",
+  async () => {
+    const lock = await readFile(join(root, "requirements-dev.lock"), "utf8");
+    expect(
+      lock
+        .trim()
+        .split("\n")
+        .every((line) => /^[a-zA-Z0-9_.-]+==[^\s=]+$/.test(line)),
+    ).toBe(true);
+    expect(lock).toContain("mcp==1.27.2");
+    expect(await readFile(join(root, "Makefile"), "utf8")).toContain(
+      "pip install -r requirements-dev.lock",
+    );
+  },
+);

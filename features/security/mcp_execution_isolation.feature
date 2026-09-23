@@ -1,7 +1,7 @@
 @implemented @python @mcp-security
 Feature: Isolate MCP execution and cancellation between callers
   Scenario: Check every role against every advertised tool
-    When authenticated Operator and God clients exercise all nine known tools
+    When authenticated Operator and God clients exercise all ten known tools
     Then discovery and direct calls enforce the same capability matrix
     And unavailable execution has native tool errors without credentials in responses
 

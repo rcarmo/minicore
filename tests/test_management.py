@@ -147,7 +147,7 @@ class ManagementTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             Policy("authenticated", self.tokens)
 
-    async def test_basic_is_operator_only(self):
+    async def test_basic_preserves_authenticated_role(self):
         for role, char in [("operator", "o"), ("god", "g")]:
             p = self.policy.authenticate(
                 {
@@ -155,7 +155,7 @@ class ManagementTests(unittest.IsolatedAsyncioTestCase):
                     + base64.b64encode(f"{role}:{char * 40}".encode()).decode()
                 }
             )
-            self.assertEqual(p.name if p else None, "operator" if role == "operator" else None)
+            self.assertEqual(p.name if p else None, role)
 
     async def test_http_boundaries(self):
         async def get(path, auth=True, method="GET"):

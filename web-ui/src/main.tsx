@@ -1,6 +1,12 @@
 import { render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { NetworkScene } from "./graph";
+import {
+  ControllerState,
+  VisibilityToggle,
+  useGodCapability,
+  type ViewMode,
+} from "./visibility";
 import { useActivity } from "./activity";
 import { NodeRoutes } from "./routes";
 import { NodeLogs } from "./logs";
@@ -10,6 +16,12 @@ import type { TopologySnapshot } from "./types";
 import "./styles.css";
 
 function App() {
+  const [view, setView] = useState<ViewMode>("agent");
+  const capable = useGodCapability();
+  const changeView = (next: ViewMode) => {
+    setSnapshot(null);
+    setView(next);
+  };
   const canvas = useRef<HTMLCanvasElement>(null);
   const scene = useRef<NetworkScene>();
   const [snapshot, setSnapshot] = useState<TopologySnapshot | null>(null);
@@ -33,10 +45,6 @@ function App() {
   }
 
   useEffect(() => {
-    let disposed = false;
-    let pending = false;
-    let inFlight = false;
-    const abort = new AbortController();
     try {
       if (!canvas.current?.getContext("webgl2"))
         throw Error("WebGL2 unavailable — use the node and link lists below");
@@ -46,6 +54,14 @@ function App() {
     } catch (e) {
       setGraphError(e instanceof Error ? e.message : "Graph unavailable");
     }
+    return () => scene.current?.dispose();
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let pending = false;
+    let inFlight = false;
+    const abort = new AbortController();
     async function load() {
       if (inFlight) {
         pending = true;
@@ -53,11 +69,16 @@ function App() {
       }
       inFlight = true;
       try {
-        const response = await fetch("/api/v1/topology", {
+        const response = await fetch(`/api/v1/topology?view=${view}`, {
           signal: abort.signal,
         });
-        if (!response.ok)
+        if (!response.ok) {
+          if (view === "god" && [401, 403].includes(response.status)) {
+            setSnapshot(null);
+            setView("agent");
+          }
           throw Error(`Topology request failed (${response.status})`);
+        }
         const next = validateSnapshot(await response.json());
         if (disposed) return;
         setSnapshot(next);
@@ -77,7 +98,7 @@ function App() {
     }
     void load();
     const poll = setInterval(load, 15000);
-    const events = new EventSource("/api/v1/events");
+    const events = new EventSource(`/api/v1/events?view=${view}`);
     events.onopen = () => setStream("connected");
     events.onerror = () => setStream("reconnecting; polling continues");
     events.addEventListener("topology.changed", load);
@@ -92,9 +113,8 @@ function App() {
       clearInterval(poll);
       events.close();
       document.removeEventListener("visibilitychange", resume);
-      scene.current?.dispose();
     };
-  }, []);
+  }, [view]);
 
   useEffect(() => {
     scene.current?.select(selectedId);
@@ -116,6 +136,9 @@ function App() {
           <dd data-state={stream}>{stream}</dd>
         </dl>
       </header>
+      <div class="view-toolbar">
+        <VisibilityToggle view={view} capable={capable} onChange={changeView} />
+      </div>
       <section class="workspace">
         <div class="graph">
           <canvas ref={canvas} aria-label="Interactive network topology" />
@@ -142,6 +165,14 @@ function App() {
         </div>
         <aside aria-label="Node inspector">
           <h2>{selected?.label ?? "Select a node"}</h2>
+          {view === "god" && snapshot && (
+            <ControllerState
+              value={
+                (snapshot as unknown as { controller?: unknown }).controller
+              }
+            />
+          )}
+
           {selected ? (
             <>
               <p class="role">

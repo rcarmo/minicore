@@ -34,6 +34,16 @@ def schema(properties=None, required=None):
 STRING = {"type": "string", "maxLength": 128}
 INPUTS = {
     "list_nodes": schema(),
+    "get_evidence": schema(
+        {
+            "kind": {"type": "string", "enum": ["topology", "logs", "configuration"]},
+            "node_id": STRING,
+            "file": STRING,
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+            "cursor": {"type": "string", "maxLength": 256},
+        },
+        ["kind"],
+    ),
     "get_interfaces": schema({"node_id": STRING, "interface": STRING}, ["node_id"]),
     "get_routes": schema({"node_id": STRING, "prefix": STRING}, ["node_id"]),
     "get_neighbors": schema(
@@ -63,6 +73,7 @@ class Server(AsyncMCPServer):
         self.topology, self.policy, self.assets = topology, policy, assets
         self.config_root = assets.parent.parent / "configs"
         self.adapter: SSHAdapter | None = None
+        self.controller = None
         self.activity = Activity()
         self.streams = 0
         self.log_store = LogStore(topology, policy.credentials.values())
@@ -147,7 +158,7 @@ class Server(AsyncMCPServer):
         for key, value in args.items():
             rule = s["properties"][key]
             if rule["type"] == "string" and (
-                not isinstance(value, str) or not value or len(value) > 128
+                not isinstance(value, str) or not value or len(value) > rule.get("maxLength", 128)
             ):
                 raise ValueError("invalid_arguments")
             if rule["type"] == "integer" and (
@@ -155,6 +166,16 @@ class Server(AsyncMCPServer):
             ):
                 raise ValueError("invalid_arguments")
             if "enum" in rule and value not in rule["enum"]:
+                raise ValueError("invalid_arguments")
+        if name == "get_evidence":
+            allowed = {
+                "topology": {"kind"},
+                "logs": {"kind", "node_id", "limit", "cursor"},
+                "configuration": {"kind", "node_id", "file"},
+            }[args["kind"]]
+            if set(args) - allowed or (args["kind"] != "topology" and "node_id" not in args):
+                raise ValueError("invalid_arguments")
+            if "file" in args and args["file"] not in {"daemons", "frr.conf", "network.json"}:
                 raise ValueError("invalid_arguments")
         node = args.get("node_id")
         if node and node not in self.topology.nodes:
@@ -199,6 +220,41 @@ class Server(AsyncMCPServer):
         except ValueError as e:
             return self.create_response(
                 request_id, error=self.create_error(-32602, str(e), {"request_id": trace})
+            )
+        if name == "get_evidence":
+            if args["kind"] == "topology":
+                result = self.topology.envelope(
+                    "get_topology", data=self.project_topology("agent"), request_id=trace
+                )
+            elif args["kind"] == "logs":
+                try:
+                    result = self.log_store.page(
+                        args["node_id"], args.get("limit", 100), args.get("cursor")
+                    )
+                except ValueError as exc:
+                    return self.create_response(
+                        request_id, error=self.create_error(-32602, str(exc))
+                    )
+            else:
+                status, result = baseline(
+                    self.topology,
+                    self.config_root,
+                    args["node_id"],
+                    args.get("file"),
+                    self.policy.credentials.values(),
+                )
+                if status != 200:
+                    result = self.topology.envelope(
+                        "get_declared_configuration", args["node_id"], error=result["error_code"]
+                    )
+            result["request_id"] = trace
+            return self.create_response(
+                request_id,
+                {
+                    "content": [{"type": "text", "text": json.dumps(result)}],
+                    "structuredContent": result,
+                    "isError": result["error_code"] is not None,
+                },
             )
         activity_id = (
             self.activity.start(args["node_id"], self.topology.inventory["generation"])
@@ -269,18 +325,48 @@ class Server(AsyncMCPServer):
             headers + (("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff")),
         )
 
-    async def events(self):
+    def project_topology(self, view="agent"):
+        snapshot = self.topology.snapshot()
+        snapshot["view"] = view
+        if view == "god":
+            if self.controller is None:
+                snapshot["controller"] = {
+                    "state": "unavailable",
+                    "error_code": "backend_not_configured",
+                }
+            else:
+                state = self.controller.get_state()
+                # Only controller public state, never stored credentials/internal journal details.
+                snapshot["controller"] = {
+                    key: state[key]
+                    for key in (
+                        "state",
+                        "scenario_id",
+                        "node_id",
+                        "interface",
+                        "generation",
+                        "parameters",
+                        "verified",
+                        "error_code",
+                    )
+                    if key in state
+                }
+        return snapshot
+
+    async def events(self, view="agent"):
         previous = None
         self.streams += 1
         try:
             for _ in range(
                 60
             ):  # Re-authorize at least every minute; bounded per-connection lifetime.
-                s = self.topology.snapshot()
-                if previous != s["revision"]:
+                s = self.project_topology(view)
+                # Controller changes also invalidate the authorised God view.
+                revision = json.dumps([s["revision"], s.get("controller")], sort_keys=True)
+                if previous != revision:
                     kind = "topology.snapshot" if previous is None else "topology.changed"
                     yield f"id: {s['revision']}\nevent: {kind}\ndata: {json.dumps({'generation': s['generation'], 'revision': s['revision']})}\n\n".encode()
-                    previous = s["revision"]
+                    previous = revision
                 else:
                     yield b": heartbeat\n\n"
                 await asyncio.sleep(1)
@@ -343,6 +429,39 @@ class Server(AsyncMCPServer):
                 401,
                 {"error_code": "authentication_required"},
                 (("WWW-Authenticate", 'Basic realm="Minicore", charset="UTF-8"'),),
+            )
+        if path in {"/api/v1/topology", "/api/v1/events"}:
+            try:
+                query = parse_qs(
+                    target.query, keep_blank_values=True, strict_parsing=True, max_num_fields=1
+                )
+                if set(query) - {"view"} or any(len(v) != 1 for v in query.values()):
+                    raise ValueError()
+                view = query.get("view", ["agent"])[0]
+                if view not in {"agent", "god"}:
+                    raise ValueError()
+            except ValueError:
+                return self.response(400, {"error_code": "invalid_arguments"})
+            if view == "god" and "god" not in p.roles:
+                return self.response(403, {"error_code": "authorization_denied"})
+            if path == "/api/v1/topology":
+                return self.response(200, self.project_topology(view))
+            if self.streams >= 16:
+                return self.response(503, {"error_code": "stream_limit"})
+            return MCPHTTPResponse(
+                200,
+                content_type="text/event-stream",
+                headers=(("Cache-Control", "no-store"), ("X-Accel-Buffering", "no")),
+                stream=self.events(view),
+            )
+        if path == "/api/v1/view" and not target.query:
+            return self.response(
+                200,
+                {
+                    "can_god": "god" in p.roles,
+                    "default_view": "agent",
+                    "evidence_contract": "operator-v2",
+                },
             )
         log_match = re.fullmatch(r"/api/v1/nodes/([a-z0-9]+)/logs(/events)?", path)
         if log_match:
@@ -430,17 +549,6 @@ class Server(AsyncMCPServer):
                 content_type="text/event-stream",
                 headers=(("Cache-Control", "no-store"), ("X-Accel-Buffering", "no")),
                 stream=self.activity_events(),
-            )
-        if path == "/api/v1/topology":
-            return self.response(200, self.topology.snapshot())
-        if path == "/api/v1/events":
-            if self.streams >= 16:
-                return self.response(503, {"error_code": "stream_limit"})
-            return MCPHTTPResponse(
-                200,
-                content_type="text/event-stream",
-                headers=(("Cache-Control", "no-store"), ("X-Accel-Buffering", "no")),
-                stream=self.events(),
             )
         match = re.fullmatch("/api/v1/nodes/([a-z0-9]+)", path)
         if match:

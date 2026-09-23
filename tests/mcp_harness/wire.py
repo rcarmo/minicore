@@ -13,9 +13,10 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-OPERATOR = {"list_nodes", "get_interfaces", "get_routes", "get_neighbors", "ping"}
+OPERATOR = {"list_nodes", "get_interfaces", "get_routes", "get_neighbors", "ping", "get_evidence"}
 GOD = {"list_fault_scenarios", "get_fault_state", "apply_fault", "reset_lab"}
 ARGS = {
+    "get_evidence": {"kind": "topology"},
     "get_interfaces": {"node_id": "p1"},
     "get_routes": {"node_id": "p1"},
     "get_neighbors": {"node_id": "p1", "protocol": "bgp"},

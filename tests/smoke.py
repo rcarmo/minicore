@@ -47,6 +47,7 @@ assert (
 r = request("POST", "/mcp", {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, h)[2]
 assert {t["name"] for t in r["result"]["tools"]} == {
     "list_nodes",
+    "get_evidence",
     "get_interfaces",
     "get_routes",
     "get_neighbors",

@@ -81,7 +81,7 @@ class TransportTests(unittest.TestCase):
         )
 
     def test_roles_sessions_and_mutation_denials(self):
-        for role, count in [("operator", 5), ("god", 9)]:
+        for role, count in [("operator", 6), ("god", 10)]:
             status, h, body = self.rpc("initialize", role, {"protocolVersion": "2025-03-26"})
             self.assertEqual(status, 200)
             session = {"Mcp-Session-Id": h["Mcp-Session-Id"]}

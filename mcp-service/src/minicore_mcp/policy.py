@@ -7,7 +7,7 @@ from pathlib import Path
 
 from umcp_shared import MCPPrincipal
 
-OPERATOR = {"list_nodes", "get_interfaces", "get_routes", "get_neighbors", "ping"}
+OPERATOR = {"list_nodes", "get_interfaces", "get_routes", "get_neighbors", "ping", "get_evidence"}
 GOD = {"list_fault_scenarios", "apply_fault", "get_fault_state", "reset_lab"}
 
 
@@ -38,13 +38,9 @@ class Policy:
         if auth.startswith("Basic "):
             try:
                 user, token = base64.b64decode(auth[6:], validate=True).decode().split(":", 1)
-                expected = self.credentials.get("operator")
-                if (
-                    user == "operator"
-                    and expected
-                    and hmac.compare_digest(token.encode(), expected.encode())
-                ):
-                    return MCPPrincipal(name="operator", roles=("operator",))
+                expected = self.credentials.get(user) if user in {"operator", "god"} else None
+                if expected and hmac.compare_digest(token.encode(), expected.encode()):
+                    return MCPPrincipal(name=user, roles=(user,))
             except (ValueError, UnicodeError):
                 pass
             return None

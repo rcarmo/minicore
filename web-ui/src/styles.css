@@ -33,7 +33,7 @@ body {
 main {
   height: 100%;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto auto 1fr auto;
 }
 header {
   display: flex;
@@ -368,4 +368,29 @@ aside nav {
     box-shadow: none;
     border: 2px solid #00e5ff;
   }
+}
+
+.view-toolbar {
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.god-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+.god-toggle strong {
+  margin-left: 10px;
+  color: var(--accent);
+}
+.controller-state {
+  padding: 8px;
+  border: 1px dashed var(--warn);
+  margin: 12px 0;
+  font-size: 0.8rem;
+}
+.controller-state p {
+  margin: 5px 0;
 }

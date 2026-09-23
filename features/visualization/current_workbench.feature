@@ -47,3 +47,9 @@ Feature: Current network workbench interactions
 
   Scenario: Honor reduced motion for the agent-access ring
     Then reduced motion uses a steady activity ring and obsolete generations never light a node
+
+  Scenario: Switch God visibility without granting a role or retaining privileged content
+    Then an authorised God checkbox reveals source-labelled controller state and unchecking it clears that state without changing node selection
+
+  Scenario: Deny unavailable God access and ignore obsolete privileged responses
+    Then an Operator cannot enable the checkbox and a late God-view response cannot overwrite Agent view

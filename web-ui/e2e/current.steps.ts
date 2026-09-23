@@ -302,3 +302,86 @@ Then(
     });
   },
 );
+Then(
+  "an authorised God checkbox reveals source-labelled controller state and unchecking it clears that state without changing node selection",
+  async ({ page }) => {
+    await page.route("**/api/v1/view", (r) =>
+      r.fulfill({ json: { can_god: true } }),
+    );
+    await page.route("**/api/v1/topology*", async (r) => {
+      const data = await (
+        await r.fetch({
+          url: "http://127.0.0.1:19123/api/v1/topology?view=agent",
+        })
+      ).json();
+      const god = new URL(r.request().url()).searchParams.get("view") === "god";
+      await r.fulfill({
+        json: {
+          ...data,
+          view: god ? "god" : "agent",
+          ...(god
+            ? {
+                controller: {
+                  state: "active",
+                  scenario_id: "test-fault",
+                  node_id: "p1",
+                },
+              }
+            : {}),
+        },
+      });
+    });
+    await page.goto("/#p1");
+    const checkbox = page.getByRole("checkbox", { name: /God mode/ });
+    await expect(checkbox).not.toBeChecked();
+    await checkbox.check();
+    await expect(page.getByLabel("Controller ground truth")).toContainText(
+      "test-fault",
+    );
+    await checkbox.uncheck();
+    await expect(page.getByLabel("Controller ground truth")).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: "P1", exact: true }),
+    ).toBeVisible();
+  },
+);
+Then(
+  "an Operator cannot enable the checkbox and a late God-view response cannot overwrite Agent view",
+  async ({ page }) => {
+    await page.goto("/#p1");
+    await expect(
+      page.getByRole("checkbox", { name: /God mode/ }),
+    ).toBeDisabled();
+    await page.route("**/api/v1/view", (r) =>
+      r.fulfill({ json: { can_god: true } }),
+    );
+    await page.route("**/api/v1/topology*", async (r) => {
+      const data = await (
+        await r.fetch({
+          url: "http://127.0.0.1:19123/api/v1/topology?view=agent",
+        })
+      ).json();
+      const god = new URL(r.request().url()).searchParams.get("view") === "god";
+      if (god) await new Promise((resolve) => setTimeout(resolve, 800));
+      await r
+        .fulfill({
+          json: {
+            ...data,
+            ...(god
+              ? {
+                  controller: { state: "active", scenario_id: "must-not-leak" },
+                }
+              : {}),
+          },
+        })
+        .catch(() => {});
+    });
+    await page.reload();
+    const checkbox = page.getByRole("checkbox", { name: /God mode/ });
+    await checkbox.check();
+    await checkbox.uncheck();
+    await page.waitForTimeout(1200);
+    await expect(page.getByLabel("Controller ground truth")).toHaveCount(0);
+    await expect(checkbox).not.toBeChecked();
+  },
+);

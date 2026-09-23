@@ -131,13 +131,13 @@ export async function topologyReconciliation({ page }: { page: Page }) {
   await page.clock.install();
   let revision = 1,
     fetches = 0;
-  await page.route("**/api/v1/topology", async (route) => {
+  await page.route("**/api/v1/topology*", async (route) => {
     const response = await route.fetch();
     const data = await response.json();
     fetches++;
     await route.fulfill({ json: { ...data, revision: "test-" + revision } });
   });
-  await page.route("**/api/v1/events", (route) =>
+  await page.route("**/api/v1/events*", (route) =>
     route.fulfill({
       contentType: "text/event-stream",
       body: `retry: 1000\nevent: topology.changed\ndata: {"revision":"${revision}"}\n\n`,
@@ -151,8 +151,8 @@ export async function topologyReconciliation({ page }: { page: Page }) {
   revision = 2;
   await expect(page.locator("footer")).toContainText("test-2");
   expect(fetches).toBeGreaterThan(initial);
-  await page.unroute("**/api/v1/events");
-  await page.route("**/api/v1/events", (r) =>
+  await page.unroute("**/api/v1/events*");
+  await page.route("**/api/v1/events*", (r) =>
     r.fulfill({ status: 503, body: "" }),
   );
   // Polling is independent; fake browser clock advances only JS timers, not request completion.

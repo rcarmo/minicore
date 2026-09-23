@@ -56,7 +56,7 @@ async def exercise(url, tokens):
                     assert streams and all(code == 200 for code in streams), streams
                     for name in sorted(OPERATOR):
                         result = await client.call_tool(name, ARGS.get(name, {}))
-                        assert result.isError == (name != "list_nodes")
+                        assert result.isError == (name not in {"list_nodes", "get_evidence"})
                         assert result.structuredContent == json.loads(result.content[0].text)
                         evidence.append(
                             {

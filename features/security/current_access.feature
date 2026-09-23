@@ -9,8 +9,8 @@ Feature: Current service access and input boundaries
     And every tool has explicit read-only and destructive annotations
     Examples:
       | role     | tool_count |
-      | operator | 5          |
-      | god      | 9          |
+      | operator | 6          |
+      | god      | 10          |
 
   Scenario Outline: Deny a guessed God tool before executing it
     When "operator" calls "<tool>" with arguments "{}"
@@ -48,7 +48,7 @@ Feature: Current service access and input boundaries
       | missing            |
       | bad bearer         |
       | malformed basic    |
-      | god basic          |
+      | invalid god basic  |
       | forged role header |
 
   Scenario: Anonymous access requires the explicit private profile

@@ -35,7 +35,7 @@ def lifecycle(c):
     for name in OPERATOR:
         status, _, r = w.rpc("tools/call", {"name": name, "arguments": ARGS.get(name, {})}, **kw)
         assert status == 200 and "result" in r, (status, r)
-        assert r["result"]["isError"] == (name != "list_nodes")
+        assert r["result"]["isError"] == (name not in {"list_nodes", "get_evidence"})
         assert json.loads(r["result"]["content"][0]["text"]) == r["result"]["structuredContent"]
     assert w.request("DELETE", **kw)[0] == 200
     assert w.rpc("tools/list", **kw)[0] == 404
@@ -227,7 +227,7 @@ def rotation_ok(c):
     c.mcp.initialize()
 
 
-@when("authenticated Operator and God clients exercise all nine known tools")
+@when("authenticated Operator and God clients exercise all ten known tools")
 def matrix(c):
     w = wire(c)
     c.matrix = []
@@ -254,7 +254,9 @@ def matrix_ok(c):
 def matrix_errors(c):
     for _, name, (status, _, data) in c.matrix:
         if status == 200:
-            assert data["result"]["isError"] == (name not in {"list_nodes", "list_fault_scenarios"})
+            assert data["result"]["isError"] == (
+                name not in {"list_nodes", "list_fault_scenarios", "get_evidence"}
+            )
         for token in c.mcp.tokens.values():
             assert token not in json.dumps(data)
 

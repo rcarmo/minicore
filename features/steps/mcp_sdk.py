@@ -82,21 +82,24 @@ def sdk_connect(c):
 
 @then("it negotiates the actual supported protocol and lists the role-specific tools")
 def sdk_protocol(c):
-    assert len(c.sdk_evidence) == 10
+    assert len(c.sdk_evidence) == 12
     assert all(row["protocol"] == "2025-03-26" for row in c.sdk_evidence)
 
 
-@then("it invokes all five Operator tools and receives matching structured and text evidence")
+@then("it invokes all six Operator tools and receives matching structured and text evidence")
 def sdk_tools(c):
-    assert len({row["tool"] for row in c.sdk_evidence}) == 5
+    assert len({row["tool"] for row in c.sdk_evidence}) == 6
 
 
 @then("it observes native errors for unconnected backends rather than synthetic success")
 def sdk_errors(c):
-    assert all(row["is_error"] == (row["tool"] != "list_nodes") for row in c.sdk_evidence)
+    assert all(
+        row["is_error"] == (row["tool"] not in {"list_nodes", "get_evidence"})
+        for row in c.sdk_evidence
+    )
 
 
-@then("a separate God client sees all nine tools without changing the Operator's discovery")
+@then("a separate God client sees all ten tools without changing the Operator's discovery")
 def sdk_roles(c):
     assert {row["role"] for row in c.sdk_evidence} == {"operator", "god"}
 
@@ -131,4 +134,4 @@ def sdk_cleanup(c):
 
 @then("the SDK session event stream attaches successfully without HTTP 400")
 def sdk_stream_ok(c):
-    assert len(c.sdk_evidence) == 10  # exercise asserts GET success before calling any tools
+    assert len(c.sdk_evidence) == 12  # exercise asserts GET success before calling any tools

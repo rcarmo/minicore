@@ -46,24 +46,22 @@ const headers = {
   Accept: "application/json, text/event-stream",
   "MCP-Protocol-Version": "2025-03-26",
 };
-Then(
-  "discovery exposes exactly the five diagnostic tools",
-  async ({ request }) => {
-    const r = await request.post("/mcp", {
-      headers,
-      data: { jsonrpc: "2.0", id: 2, method: "tools/list" },
-    });
-    expect(
-      (await r.json()).result.tools.map((t: { name: string }) => t.name).sort(),
-    ).toEqual([
-      "get_interfaces",
-      "get_neighbors",
-      "get_routes",
-      "list_nodes",
-      "ping",
-    ]);
-  },
-);
+Then("discovery exposes the six Operator tools", async ({ request }) => {
+  const r = await request.post("/mcp", {
+    headers,
+    data: { jsonrpc: "2.0", id: 2, method: "tools/list" },
+  });
+  expect(
+    (await r.json()).result.tools.map((t: { name: string }) => t.name).sort(),
+  ).toEqual([
+    "get_evidence",
+    "get_interfaces",
+    "get_neighbors",
+    "get_routes",
+    "list_nodes",
+    "ping",
+  ]);
+});
 Then("list_nodes returns all eight expected nodes", async ({ request }) => {
   const r = await request.post("/mcp", {
     headers,

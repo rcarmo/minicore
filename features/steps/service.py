@@ -118,8 +118,8 @@ def auth(c, identity):
         "bad bearer": {"authorization": "Bearer bad"},
         "malformed basic": {"authorization": "Basic !!!"},
         "forged role header": {"X-Role": "god"},
-        "god basic": {
-            "authorization": "Basic " + base64.b64encode(("god:" + "g" * 40).encode()).decode()
+        "invalid god basic": {
+            "authorization": "Basic " + base64.b64encode(("god:" + "bad").encode()).decode()
         },
         "operator basic": {
             "authorization": "Basic " + base64.b64encode(("operator:" + "o" * 40).encode()).decode()
@@ -434,7 +434,7 @@ def init(c):
 
 @then("each client discovers only its permitted tools")
 def wire_tools(c):
-    for role, count in [("operator", 5), ("god", 9)]:
+    for role, count in [("operator", 6), ("god", 10)]:
         status, _, body = wire_rpc(c, role, "tools/list", extra=c.sessions[role])
         assert status == 200
         assert len(json.loads(body)["result"]["tools"]) == count
@@ -794,3 +794,163 @@ def configuration_private_key_removed(c):
     content = json.loads(c.response.body)["data"]["content"]
     assert "cHJpdmF0ZS1rZXktYm9keS1zaG91bGQtbm90LWJlLXZpc2libGU=" not in content
     assert "-----BEGIN" not in content and "-----END" not in content
+
+
+@then("get_evidence exposes only topology, logs and declared configuration selectors")
+def evidence_discovery(c):
+    tool = next((t for t in c.result["result"]["tools"] if t["name"] == "get_evidence"), None)
+    assert tool is not None
+    assert tool["inputSchema"]["properties"]["kind"]["enum"] == [
+        "topology",
+        "logs",
+        "configuration",
+    ]
+    assert tool["inputSchema"]["additionalProperties"] is False
+
+
+@when('an Operator requests "{kind}" evidence over MCP and HTTP')
+def evidence_parity(c, kind):
+    args = {"kind": kind}
+    path = "/api/v1/topology"
+    if kind == "logs":
+        args.update(node_id="p1", limit=10)
+        path = "/api/v1/nodes/p1/logs?limit=10"
+    elif kind == "configuration":
+        args.update(node_id="p1", file="frr.conf")
+        path = "/api/v1/nodes/p1/config/frr.conf"
+    c.mcp_evidence = rpc(c, "operator", "tools/call", {"name": "get_evidence", "arguments": args})
+    http_request(c, "operator", "GET", path)
+
+
+@then("both surfaces return the same permitted data and failure state")
+def evidence_matches(c):
+    assert "result" in c.mcp_evidence, c.mcp_evidence
+    tool = c.mcp_evidence["result"]["structuredContent"]
+    web = json.loads(c.response.body)
+    if tool["operation"] == "get_topology":
+        assert tool["data"] == web
+    else:
+        assert tool["data"] == web["data"] and tool["error_code"] == web["error_code"]
+
+
+@given("a controller state fixture containing an injected fault and a secret field")
+def fixture_ground_truth(c):
+    class Controller:
+        def get_state(self):
+            return {
+                "state": "active",
+                "scenario_id": "core-link-failure",
+                "node_id": "p1",
+                "interface": "to-p2",
+                "generation": 1,
+                "secret": "never-project-this",
+                "parameters": {},
+                "verified": True,
+            }
+
+    c.server.controller = Controller()
+
+
+@then('"{visibility}" controller visibility is returned')
+def projected_ground_truth(c, visibility):
+    data = json.loads(c.response.body)
+    if visibility == "bounded":
+        assert data["controller"]["scenario_id"] == "core-link-failure" and data["view"] == "god"
+    else:
+        assert "controller" not in data
+    assert "never-project-this" not in c.response.body.decode()
+
+
+@then("the controller projection reports unavailable rather than baseline")
+def controller_absent(c):
+    assert c.response.status == 200
+    data = json.loads(c.response.body)["controller"]
+    assert data["state"] == "unavailable" and data["error_code"] == "backend_not_configured"
+
+
+@when("valid God Basic credentials are supplied")
+def god_basic(c):
+    c.god_headers = {
+        "authorization": "Basic " + base64.b64encode(("god:" + "g" * 40).encode()).decode()
+    }
+    c.god_principal = c.policy.authenticate(c.god_headers)
+
+
+@then("the principal has God capability and the capability response exposes no credential")
+def browser_capability(c):
+    assert c.god_principal and c.god_principal.roles == ("god",)
+    response = run(
+        c.server.handle_http_request_async(
+            method="GET", path="/api/v1/view", headers=c.god_headers, body=b"", peer="127.0.0.1"
+        )
+    )
+    assert response.status == 200 and json.loads(response.body)["can_god"] is True
+    assert "g" * 40 not in response.body.decode()
+
+
+@then("incorrect God Basic credentials are denied")
+def bad_god_basic(c):
+    assert (
+        c.policy.authenticate({"authorization": "Basic " + base64.b64encode(b"god:bad").decode()})
+        is None
+    )
+
+
+@when("Operator and God request full-view topology streams")
+def visibility_streams(c):
+    async def check():
+        c.op_stream = await c.server.handle_http_request_async(
+            method="GET",
+            path="/api/v1/events?view=god",
+            headers=headers("operator"),
+            body=b"",
+            peer="127.0.0.1",
+        )
+        r = await c.server.handle_http_request_async(
+            method="GET",
+            path="/api/v1/events?view=god",
+            headers=headers("god"),
+            body=b"",
+            peer="127.0.0.1",
+        )
+        assert r.status == 200
+        c.event = await anext(r.stream)
+        await r.stream.aclose()
+
+    run(check())
+
+
+@then("Operator is denied and God receives metadata-only invalidation")
+def visibility_stream_result(c):
+    assert (
+        c.op_stream.status == 403
+        and b"topology.snapshot" in c.event
+        and b"scenario_id" not in c.event
+        and b"never-project" not in c.event
+    )
+
+
+@then("opening the God stream does not change subsequent Operator snapshots")
+def no_global_projection(c):
+    http_request(c, "operator", "GET", "/api/v1/topology")
+    assert "controller" not in json.loads(c.response.body)
+
+
+@when("an Operator supplies undocumented evidence fields or unsafe filenames")
+def unsafe_evidence(c):
+    c.evidence_denied = [
+        rpc(c, "operator", "tools/call", {"name": "get_evidence", "arguments": args})
+        for args in [
+            {"kind": "configuration", "node_id": "p1", "file": "../../secrets"},
+            {"kind": "logs", "node_id": "p1", "command": "id"},
+            {"kind": "controller"},
+            {"kind": "topology", "node_id": "p1"},
+        ]
+    ]
+
+
+@then("each call is rejected without exposing host or controller state")
+def rejected_evidence(c):
+    assert all("error" in r and r["error"]["code"] == -32602 for r in c.evidence_denied), (
+        c.evidence_denied
+    )

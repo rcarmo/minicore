@@ -270,3 +270,59 @@ a {
 small {
   color: var(--muted);
 }
+.logs-panel {
+  margin-top: 14px;
+}
+.log-controls {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.log-controls label {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.log-controls select {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  padding: 5px;
+}
+.log-meta {
+  font-size: 0.7rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.log-rows {
+  max-height: 48vh;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+}
+.log-entry {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.log-entry > div {
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+.log-entry pre {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.73rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 4px 0;
+}
+.log-entry[data-severity="error"] strong {
+  color: var(--danger);
+}
+.log-entry[data-severity="warning"] strong,
+.log-new {
+  color: var(--warn);
+}
+.log-new {
+  font-size: 0.75rem;
+}

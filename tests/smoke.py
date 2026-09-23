@@ -100,7 +100,10 @@ assert request("DELETE", "/mcp", headers=h)[0] == 200
 r.close()
 c.close()
 assert request("GET", "/mcp", headers=h | {"Accept": "text/event-stream"})[0] == 404
-assert request("GET", "/api/v1/nodes/p1/logs")[0] == 503
+log_status, _, log_page = request("GET", "/api/v1/nodes/p1/logs")
+assert log_status in {200, 503}
+assert log_page["node_id"] == "p1" and len(log_page["data"]["entries"]) <= 100
+assert (log_status == 200) == (log_page["error_code"] is None)
 assert request("GET", "/assets/../../secrets/mcp-tokens.json")[0] == 404
 assert (
     request("GET", "/api/v1/topology", headers={"Origin": "https://unapproved.example"})[0] == 403

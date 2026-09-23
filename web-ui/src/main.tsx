@@ -1,6 +1,7 @@
 import { render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { NetworkScene } from "./graph";
+import { NodeLogs } from "./logs";
 import { validateSnapshot } from "./topology";
 import type { TopologySnapshot } from "./types";
 import "./styles.css";
@@ -15,7 +16,6 @@ function App() {
   const [error, setError] = useState("");
   const [graphError, setGraphError] = useState("");
   const [tab, setTab] = useState("Summary");
-  const [logs, setLogs] = useState("");
   const [stream, setStream] = useState("reconnecting");
   const [lastFetched, setLastFetched] = useState("not fetched");
   const selected = snapshot?.nodes.find((n) => n.id === selectedId);
@@ -92,28 +92,6 @@ function App() {
   useEffect(() => {
     scene.current?.select(selectedId);
   }, [selectedId, snapshot]);
-  useEffect(() => {
-    if (!selectedId || tab !== "Logs") return;
-    const controller = new AbortController();
-    setLogs("Loading node logs…");
-    fetch(`/api/v1/nodes/${encodeURIComponent(selectedId)}/logs`, {
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const data = await response.json();
-        if (!controller.signal.aborted)
-          setLogs(
-            data.error_code
-              ? `Logs unavailable: ${data.error_code}`
-              : "No events in this window",
-          );
-      })
-      .catch((e) => {
-        if (!controller.signal.aborted)
-          setLogs(`Logs unavailable: ${e.message}`);
-      });
-    return () => controller.abort();
-  }, [selectedId, tab]);
 
   return (
     <main>
@@ -186,9 +164,11 @@ function App() {
                   <dd>{selected.observed_at ?? "not collected"}</dd>
                 </dl>
               ) : tab === "Logs" ? (
-                <p role="status" class="notice">
-                  {logs}
-                </p>
+                <NodeLogs
+                  key={`${selected.id}:${snapshot?.generation}`}
+                  nodeId={selected.id}
+                  generation={snapshot!.generation}
+                />
               ) : (
                 <p class="notice">
                   {tab} evidence unavailable: backend_not_configured

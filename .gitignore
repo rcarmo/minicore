@@ -22,3 +22,4 @@ web-ui/test-results/
 web-ui/playwright-report/
 web-ui/.features-gen/
 .mypy_cache/
+web-ui/.features-logs-gen/

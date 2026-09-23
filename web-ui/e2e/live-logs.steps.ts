@@ -1,0 +1,48 @@
+import { expect } from "@playwright/test";
+import { createBdd } from "playwright-bdd";
+const { Given, When, Then } = createBdd();
+Given(
+  "p1 exists and the host log collector has recently sampled its output",
+  async ({ request }) => {
+    const response = await request.get("/api/v1/nodes/p1/logs?limit=500");
+    expect(response.status()).toBe(200);
+    const page = await response.json();
+    expect(page.error_code).toBeNull();
+    expect(page.data.entries.length).toBeGreaterThan(0);
+  },
+);
+When("I open p1 in the network workbench and select Logs", async ({ page }) => {
+  await page.goto("/#p1");
+  await page.getByRole("button", { name: "Logs", exact: true }).click();
+});
+Then("real container-source entries are displayed", async ({ page }) => {
+  await expect(page.locator(".log-entry").first()).toBeVisible();
+  await expect(
+    page.getByText("Container stdout/stderr", { exact: false }),
+  ).toBeVisible();
+});
+Then(
+  "the capability startup failure is visible as error evidence",
+  async ({ page }) => {
+    await page.getByLabel("Severity").selectOption("error");
+    await expect(page.getByLabel("Node log entries")).toContainText(
+      "cap_set_proc failed",
+    );
+    await page.screenshot({
+      path: "../docs/evidence/node-logs.png",
+      fullPage: true,
+    });
+  },
+);
+Then("pausing and following preserves the selected node", async ({ page }) => {
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "P1", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Follow latest", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "P1", exact: true }),
+  ).toBeVisible();
+});

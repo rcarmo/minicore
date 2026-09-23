@@ -155,7 +155,6 @@ export async function boundedCommand(
     stderr: "pipe",
     stdin: "ignore",
   });
-  const buffers: Uint8Array[] = [];
   let length = 0,
     clipped = false,
     timedOut = false;
@@ -169,6 +168,7 @@ export async function boundedCommand(
     stop();
   }, deadlineMs);
   const read = async (stream: ReadableStream<Uint8Array>) => {
+    const buffers: Uint8Array[] = [];
     const reader = stream.getReader();
     try {
       for (;;) {
@@ -189,12 +189,13 @@ export async function boundedCommand(
       await reader.cancel().catch(() => {});
       reader.releaseLock();
     }
+    return Buffer.concat(buffers).toString("utf8");
   };
   try {
-    await Promise.all([read(proc.stdout), read(proc.stderr)]);
+    const outputs = await Promise.all([read(proc.stdout), read(proc.stderr)]);
     const code = await proc.exited;
     return {
-      output: Buffer.concat(buffers).toString("utf8"),
+      output: outputs.filter(Boolean).join("\n"),
       code,
       clipped,
       timedOut,

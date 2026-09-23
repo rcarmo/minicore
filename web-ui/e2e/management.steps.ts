@@ -16,10 +16,10 @@ Then("I can select PE1 and open its log browser", async ({ page }) => {
   await page.getByRole("button", { name: "Logs", exact: true }).click();
 });
 Then(
-  "the log browser reports that its backend is not configured",
+  "the log browser reports that its node source is unavailable",
   async ({ page }) => {
     await expect(page.getByRole("status")).toHaveText(
-      "Logs unavailable: backend_not_configured",
+      /Logs unavailable: (backend_not_configured|node_unavailable|collector_stale)/,
     );
   },
 );

@@ -52,3 +52,9 @@ format:
 	cd web-ui && bun run format
 bdd:
 	cd web-ui && bun run test:bdd
+logs-once:
+	bun scripts/log-collector.ts --once
+logs-follow:
+	bun scripts/log-collector.ts --duration 600
+bdd-logs:
+	cd web-ui && bunx bddgen -c playwright.logs.config.ts && bunx playwright test -c playwright.logs.config.ts

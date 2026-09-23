@@ -134,3 +134,22 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(response.readline(), b"event: topology.snapshot\n")
         response.close()
         conn.close()
+
+    def test_log_query_and_authenticated_stream_on_wire(self):
+        self.assertEqual(
+            self.request("GET", "/api/v1/nodes/p1/logs?limit=501", role="operator")[0], 400
+        )
+        self.assertEqual(
+            self.request("GET", "/api/v1/nodes/p1/logs?limit=2&limit=3", role="operator")[0], 400
+        )
+        self.assertEqual(self.request("GET", "/api/v1/nodes/p1/logs/events")[0], 401)
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        conn.request(
+            "GET", "/api/v1/nodes/p1/logs/events", headers={"Authorization": "Bearer " + "o" * 40}
+        )
+        response = conn.getresponse()
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.readline(), b"event: logs.snapshot\n")
+        self.assertIn(b'"node_id": "p1"', response.readline())
+        response.close()
+        conn.close()

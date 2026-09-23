@@ -5,7 +5,7 @@ Feature: Run the initial management and MCP container
     When I open the network workbench
     Then I see eight nodes and nine links
     And I can select PE1 and open its log browser
-    And the log browser reports that its backend is not configured
+    And the log browser reports that its node source is unavailable
 
   Scenario: Expose real MCP without claiming live diagnostics
     Given the initial management container is ready

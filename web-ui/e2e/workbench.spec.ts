@@ -14,7 +14,7 @@ test("full brief topology, node selection and bounded logs unavailable", async (
   ).toBeVisible();
   await page.getByRole("button", { name: "Logs", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText(
-    "Logs unavailable: backend_not_configured",
+    /Logs unavailable: (backend_not_configured|node_unavailable|collector_stale)/,
   );
   await expect(page.getByText("connected", { exact: true })).toBeVisible();
   await page.screenshot({

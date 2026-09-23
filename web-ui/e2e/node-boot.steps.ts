@@ -68,7 +68,9 @@ Then(
       const id = (await command([...base, "ps", "-q", node])).trim();
       const info = JSON.parse(await command(["docker", "inspect", id]))[0];
       expect(info.HostConfig.Privileged).toBe(false);
-      expect(info.HostConfig.CapAdd).not.toContain("SYS_ADMIN");
+      expect(
+        info.HostConfig.CapAdd.map((cap: string) => cap.replace(/^CAP_/, "")),
+      ).not.toContain("SYS_ADMIN");
       await command([
         ...base,
         "exec",
@@ -186,7 +188,7 @@ Then("host1 and host2 exchange three packets in each direction", async () => {
         "2",
         ip,
       ]),
-    ).toContain("0% packet loss");
+    ).toMatch(/(?:^|\s)0% packet loss/);
 });
 Given("the host node log collector is running", async () => {
   await command(["bun", "scripts/log-watcher.ts", "start"]);

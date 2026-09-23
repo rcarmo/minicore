@@ -25,8 +25,11 @@ Then(
   "successful startup events are visible without capability failures",
   async ({ page }) => {
     await page.getByLabel("Severity").selectOption("all");
-    await expect(page.getByLabel("Node log entries")).toContainText(
+    await expect(page.getByLabel("Node log entries")).not.toContainText(
       "cap_set_proc failed",
+    );
+    await expect(page.getByLabel("Node log entries")).toContainText(
+      "all daemons up",
     );
     await page.screenshot({
       path: "../docs/evidence/node-logs.png",

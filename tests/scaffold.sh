@@ -8,4 +8,6 @@ for node in p1 p2 pe1 pe2 ce1 ce2 host1 host2; do
 done
 grep -q 'Scaffold only' README.md
 test -s SPEC.md
+test -s .pi/skills/web-artifacts-builder/SKILL.md
+test -s features/visualization/node_evidence_browser.feature
 echo "Scaffold test passed."

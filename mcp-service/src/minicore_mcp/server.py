@@ -16,6 +16,7 @@ from .configuration import baseline
 from .logs import LogStore
 from .model import Topology
 from .policy import GOD, OPERATOR, Policy
+from .ssh_adapter import SSHAdapter
 
 SCENARIOS = ("core-link-failure", "customer-bgp-failure", "data-path-degradation")
 
@@ -60,6 +61,7 @@ class Server(AsyncMCPServer):
     def __init__(self, topology: Topology, policy: Policy, assets: Path):
         self.topology, self.policy, self.assets = topology, policy, assets
         self.config_root = assets.parent.parent / "configs"
+        self.adapter: SSHAdapter | None = None
         self.streams = 0
         self.log_store = LogStore(topology, policy.credentials.values())
         super().__init__()
@@ -205,11 +207,19 @@ class Server(AsyncMCPServer):
             }
         elif name == "list_fault_scenarios":
             data = {"scenarios": [{"id": s, "available": False} for s in SCENARIOS]}
+        elif name == "get_routes" and self.adapter is not None:
+            execution = await self.adapter.execute(
+                args["node_id"],
+                {"operation": name, **{k: v for k, v in args.items() if k != "node_id"}},
+            )
+            data, error = execution["data"], execution["error_code"]
         else:
             error = "backend_not_configured"
         result = self.topology.envelope(
             name, args.get("node_id"), data=data, error=error, request_id=trace
         )
+        if name == "get_routes" and self.adapter is not None:
+            result.update(execution)
         self.logger.info(
             json.dumps(
                 {
@@ -335,6 +345,36 @@ class Server(AsyncMCPServer):
                     content_type="text/event-stream",
                     headers=(("Cache-Control", "no-store"), ("X-Accel-Buffering", "no")),
                     stream=self.log_events(node),
+                )
+            return self.response(200 if result["status"] == "ok" else 503, result)
+        route_match = re.fullmatch(r"/api/v1/nodes/([a-z0-9]+)/routes", path)
+        if route_match:
+            node = route_match.group(1)
+            if node not in self.topology.nodes:
+                return self.response(404, {"error_code": "unknown_node"})
+            try:
+                query = parse_qs(
+                    target.query, keep_blank_values=True, strict_parsing=True, max_num_fields=1
+                )
+                if set(query) - {"prefix"} or any(len(v) != 1 for v in query.values()):
+                    raise ValueError()
+                args = {
+                    "node_id": node,
+                    **({"prefix": query["prefix"][0]} if "prefix" in query else {}),
+                }
+                self.validate_arguments("get_routes", args)
+            except ValueError:
+                return self.response(400, {"error_code": "invalid_arguments"})
+            result = self.topology.envelope("get_routes", node, error="backend_not_configured")
+            if self.adapter:
+                result.update(
+                    await self.adapter.execute(
+                        node,
+                        {
+                            "operation": "get_routes",
+                            **{k: v for k, v in args.items() if k != "node_id"},
+                        },
+                    )
                 )
             return self.response(200 if result["status"] == "ok" else 503, result)
         if target.query:

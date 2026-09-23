@@ -22,3 +22,14 @@ COPY --from=builder /stage/usr/ /usr/
 COPY router-image/node-health /usr/local/bin/node-health
 RUN chmod 755 /usr/local/bin/node-health \
  && printf 'service integrated-vtysh-config\n' > /etc/frr/vtysh.conf
+
+RUN apk add --no-cache openssh-server openssh-keygen \
+ && adduser -D -u 11001 -s /bin/sh diagnostic \
+ && addgroup diagnostic frrvty \
+ && passwd -u diagnostic \
+ && mkdir -p /etc/minicore /run/sshd
+COPY router-image/dispatcher/node_dispatcher.py /usr/local/bin/minicore-dispatch
+COPY router-image/sshd_config /etc/ssh/sshd_config
+COPY router-image/start-node /usr/local/bin/start-node
+RUN chmod 755 /usr/local/bin/minicore-dispatch /usr/local/bin/start-node
+CMD ["/usr/local/bin/start-node"]

@@ -27,6 +27,7 @@
         "MINICORE_EXPOSURE_PROFILE": "${MINICORE_EXPOSURE_PROFILE:-private}",
         "MINICORE_TOKEN_FILE": "/run/secrets/mcp-tokens.json",
         "MINICORE_OBSERVATIONS": "/runtime/observations.json",
+        "MINICORE_SSH_DIR": "/run/ssh-client",
         "MINICORE_ALLOWED_ORIGINS": "${MINICORE_ALLOWED_ORIGINS:-http://127.0.0.1:19000}"
       },
       "ports": [
@@ -36,7 +37,8 @@
         "../inventory:/app/inventory:ro",
         "../configs:/app/configs:ro",
         "../runtime:/runtime:ro",
-        "../secrets:/run/secrets:ro"
+        "../secrets/http:/run/secrets:ro",
+        "../secrets/ssh/client:/run/ssh-client:ro"
       ],
       "networks": {
         "ingress": {
@@ -92,6 +94,7 @@
         "SETUID",
         "SETGID",
         "CHOWN",
+        "SYS_CHROOT",
         "DAC_OVERRIDE",
         "FOWNER"
       ],
@@ -123,7 +126,9 @@
       "pids_limit": 64,
       "volumes": [
         "../configs/p1/frr.conf:/etc/frr/frr.conf:ro",
-        "../configs/p1/daemons:/etc/frr/daemons:ro"
+        "../configs/p1/daemons:/etc/frr/daemons:ro",
+        "../configs/p1/node.json:/etc/minicore/node.json:ro",
+        "../secrets/ssh/p1:/run/minicore-ssh:ro"
       ],
       "healthcheck": {
         "test": [
@@ -166,6 +171,7 @@
         "SETUID",
         "SETGID",
         "CHOWN",
+        "SYS_CHROOT",
         "DAC_OVERRIDE",
         "FOWNER"
       ],
@@ -197,7 +203,9 @@
       "pids_limit": 64,
       "volumes": [
         "../configs/p2/frr.conf:/etc/frr/frr.conf:ro",
-        "../configs/p2/daemons:/etc/frr/daemons:ro"
+        "../configs/p2/daemons:/etc/frr/daemons:ro",
+        "../configs/p2/node.json:/etc/minicore/node.json:ro",
+        "../secrets/ssh/p2:/run/minicore-ssh:ro"
       ],
       "healthcheck": {
         "test": [
@@ -240,6 +248,7 @@
         "SETUID",
         "SETGID",
         "CHOWN",
+        "SYS_CHROOT",
         "DAC_OVERRIDE",
         "FOWNER"
       ],
@@ -271,7 +280,9 @@
       "pids_limit": 64,
       "volumes": [
         "../configs/pe1/frr.conf:/etc/frr/frr.conf:ro",
-        "../configs/pe1/daemons:/etc/frr/daemons:ro"
+        "../configs/pe1/daemons:/etc/frr/daemons:ro",
+        "../configs/pe1/node.json:/etc/minicore/node.json:ro",
+        "../secrets/ssh/pe1:/run/minicore-ssh:ro"
       ],
       "healthcheck": {
         "test": [
@@ -314,6 +325,7 @@
         "SETUID",
         "SETGID",
         "CHOWN",
+        "SYS_CHROOT",
         "DAC_OVERRIDE",
         "FOWNER"
       ],
@@ -345,7 +357,9 @@
       "pids_limit": 64,
       "volumes": [
         "../configs/pe2/frr.conf:/etc/frr/frr.conf:ro",
-        "../configs/pe2/daemons:/etc/frr/daemons:ro"
+        "../configs/pe2/daemons:/etc/frr/daemons:ro",
+        "../configs/pe2/node.json:/etc/minicore/node.json:ro",
+        "../secrets/ssh/pe2:/run/minicore-ssh:ro"
       ],
       "healthcheck": {
         "test": [
@@ -388,6 +402,7 @@
         "SETUID",
         "SETGID",
         "CHOWN",
+        "SYS_CHROOT",
         "DAC_OVERRIDE",
         "FOWNER"
       ],
@@ -415,7 +430,9 @@
       "pids_limit": 64,
       "volumes": [
         "../configs/ce1/frr.conf:/etc/frr/frr.conf:ro",
-        "../configs/ce1/daemons:/etc/frr/daemons:ro"
+        "../configs/ce1/daemons:/etc/frr/daemons:ro",
+        "../configs/ce1/node.json:/etc/minicore/node.json:ro",
+        "../secrets/ssh/ce1:/run/minicore-ssh:ro"
       ],
       "healthcheck": {
         "test": [
@@ -458,6 +475,7 @@
         "SETUID",
         "SETGID",
         "CHOWN",
+        "SYS_CHROOT",
         "DAC_OVERRIDE",
         "FOWNER"
       ],
@@ -485,7 +503,9 @@
       "pids_limit": 64,
       "volumes": [
         "../configs/ce2/frr.conf:/etc/frr/frr.conf:ro",
-        "../configs/ce2/daemons:/etc/frr/daemons:ro"
+        "../configs/ce2/daemons:/etc/frr/daemons:ro",
+        "../configs/ce2/node.json:/etc/minicore/node.json:ro",
+        "../secrets/ssh/ce2:/run/minicore-ssh:ro"
       ],
       "healthcheck": {
         "test": [

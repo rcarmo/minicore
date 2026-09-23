@@ -456,3 +456,104 @@ def accept_ok(c):
     assert c.accept_status == 200, c.accept_status
     framing(c, "duplicate authorization")
     assert c.status == 400
+
+
+@when("the node dispatcher receives a valid get_routes request for an IPv4 prefix")
+def dispatcher_route(c):
+    from node_dispatcher import command_for, decode_request
+
+    c.node_request = decode_request(b'{"operation":"get_routes","prefix":"10.200.8.0/29"}')
+    c.node_args = command_for(c.node_request, {"destinations": [], "interfaces": []})
+
+
+@then("it chooses the fixed vtysh executable and exact show route arguments without a shell")
+def dispatcher_args(c):
+    assert c.node_args == ["/usr/bin/vtysh", "-c", "show ip route 10.200.8.0/29 json"]
+
+
+@when('the node dispatcher receives "{payload}"')
+def dispatcher_bad(c, payload):
+    from node_dispatcher import command_for, decode_request
+
+    inputs = {
+        "malformed JSON": b"{",
+        "unknown operation": b'{"operation":"shell"}',
+        "extra field": b'{"operation":"get_routes","command":"id"}',
+        "external destination": b'{"operation":"ping","destination":"8.8.8.8"}',
+        "shell syntax": b'{"operation":"get_routes","prefix":"$(id)"}',
+        "excessive count": b'{"operation":"ping","destination":"10.200.1.3","count":6}',
+        "invalid protocol": b'{"operation":"get_neighbors","protocol":"rip"}',
+        "oversized stdin": b"x" * 4097,
+        "non-object JSON": b"[]",
+    }
+    try:
+        command_for(
+            decode_request(inputs[payload]),
+            {"destinations": ["10.200.1.3"], "interfaces": ["to-p2"]},
+        )
+    except ValueError:
+        c.rejected = True
+    else:
+        c.rejected = False
+
+
+@then("it rejects the payload before executing a process")
+def dispatcher_rejected(c):
+    assert c.rejected
+
+
+@when("an exact-prefix node command returns invalid JSON")
+def dispatcher_parse(c):
+    from node_dispatcher import normalise
+
+    try:
+        normalise("get_routes", "broken")
+    except ValueError:
+        c.parse_error = True
+    else:
+        c.parse_error = False
+
+
+@then("the dispatcher returns parse_failure rather than an empty healthy result")
+def dispatcher_parse_failed(c):
+    assert c.parse_error
+
+
+@when("an exact-prefix node command returns an empty JSON object")
+def dispatcher_empty(c):
+    from node_dispatcher import normalise
+
+    c.empty = normalise("get_routes", "{}")
+
+
+@then("the dispatcher returns successful bounded raw and normalised empty data")
+def dispatcher_empty_ok(c):
+    assert c.empty == {}
+
+
+@when("a fixed node command exceeds its deadline")
+def dispatcher_timeout(c):
+    import sys
+
+    from node_dispatcher import run_bounded
+
+    c.execution = run_bounded([sys.executable, "-c", "import time;time.sleep(2)"], deadline=0.03)
+
+
+@then("the node process is killed and the response reports execution_timeout")
+def dispatcher_timed_out(c):
+    assert c.execution["error_code"] == "execution_timeout"
+
+
+@when("a fixed node command exceeds the output cap")
+def dispatcher_output(c):
+    import sys
+
+    from node_dispatcher import run_bounded
+
+    c.execution = run_bounded([sys.executable, "-c", 'print("a"*100000)'], limit=1024)
+
+
+@then("it is terminated with output_limit rather than retaining unlimited output")
+def dispatcher_capped(c):
+    assert c.execution["error_code"] == "output_limit" and len(c.execution["stdout"]) <= 1024

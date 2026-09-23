@@ -1,7 +1,7 @@
 SHELL := /bin/sh
 PYTHON ?= python3
 COMPOSE := docker compose -f compose/compose.json
-export PYTHONPATH := $(CURDIR)/vendor/umcp:$(CURDIR)/mcp-service/src:$(CURDIR)/tests
+export PYTHONPATH := $(CURDIR)/vendor/umcp:$(CURDIR)/mcp-service/src:$(CURDIR)/tests:$(CURDIR)/router-image/dispatcher
 .PHONY: install generate lint test check build up down status observe lab-up smoke clean
 install:
 	$(PYTHON) -m venv .venv
@@ -76,3 +76,8 @@ bdd-boot:
 	cd web-ui && bunx bddgen -c playwright.boot.config.ts && bunx playwright test -c playwright.boot.config.ts
 mcp-client:
 	PYTHONPATH=$(PYTHONPATH) .venv/bin/behave features/integration/mcp_independent_client.feature
+
+ssh-provision:
+	bun scripts/provision-ssh.ts
+live-routes:
+	.venv/bin/behave features/diagnostics/live_routes.feature

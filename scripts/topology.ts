@@ -147,6 +147,7 @@ export function compose(t: Topology) {
       MINICORE_EXPOSURE_PROFILE: "${MINICORE_EXPOSURE_PROFILE:-private}",
       MINICORE_TOKEN_FILE: "/run/secrets/mcp-tokens.json",
       MINICORE_OBSERVATIONS: "/runtime/observations.json",
+      MINICORE_SSH_DIR: "/run/ssh-client",
       MINICORE_ALLOWED_ORIGINS:
         "${MINICORE_ALLOWED_ORIGINS:-http://127.0.0.1:19000}",
     },
@@ -155,7 +156,8 @@ export function compose(t: Topology) {
       "../inventory:/app/inventory:ro",
       "../configs:/app/configs:ro",
       "../runtime:/runtime:ro",
-      "../secrets:/run/secrets:ro",
+      "../secrets/http:/run/secrets:ro",
+      "../secrets/ssh/client:/run/ssh-client:ro",
     ],
     networks: {
       ingress: { interface_name: "ingress0", gw_priority: 1 },
@@ -219,6 +221,7 @@ export function compose(t: Topology) {
             "SETUID",
             "SETGID",
             "CHOWN",
+            "SYS_CHROOT",
             "DAC_OVERRIDE",
             "FOWNER",
           ],
@@ -239,6 +242,8 @@ export function compose(t: Topology) {
             volumes: [
               `../configs/${n.id}/frr.conf:/etc/frr/frr.conf:ro`,
               `../configs/${n.id}/daemons:/etc/frr/daemons:ro`,
+              `../configs/${n.id}/node.json:/etc/minicore/node.json:ro`,
+              `../secrets/ssh/${n.id}:/run/minicore-ssh:ro`,
             ],
           }),
       healthcheck: {
@@ -350,6 +355,23 @@ if (import.meta.main) {
   for (const n of t.nodes) {
     if (n.kind === "router") {
       files[`configs/${n.id}/frr.conf`] = frrConfig(t, n);
+      files[`configs/${n.id}/node.json`] =
+        JSON.stringify(
+          {
+            node_id: n.id,
+            management_address: n.management_address,
+            interfaces: t.links.flatMap((l) =>
+              l.endpoints
+                .filter((e) => e.node === n.id)
+                .map((e) => e.interface),
+            ),
+            destinations: t.links.flatMap((l) =>
+              l.endpoints.map((e) => e.address.split("/")[0]),
+            ),
+          },
+          null,
+          2,
+        ) + "\n";
       files[`configs/${n.id}/daemons`] = files["configs/daemons"];
     } else {
       const link = t.links.find((l) =>

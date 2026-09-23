@@ -70,7 +70,14 @@ for name, args in [
         },
         h,
     )
-    assert status == 200 and r["result"]["isError"] == (name != "list_nodes")
+    assert status == 200
+    if name != "get_routes":
+        assert r["result"]["isError"] == (name != "list_nodes")
+    else:
+        evidence = r["result"]["structuredContent"]
+        assert (not r["result"]["isError"] and isinstance(evidence["data"], dict)) or evidence[
+            "error_code"
+        ] == "backend_not_configured"
     assert json.loads(r["result"]["content"][0]["text"]) == r["result"]["structuredContent"]
 assert (
     request(

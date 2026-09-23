@@ -340,7 +340,7 @@ export async function main(args = process.argv.slice(2)) {
   process.on("SIGTERM", stop);
   const deadline = setTimeout(stop, duration * 1000);
   try {
-    const credentialFile = Bun.file(join(root, "secrets/mcp-tokens.json"));
+    const credentialFile = Bun.file(join(root, "secrets/http/mcp-tokens.json"));
     let secrets: string[] = [];
     if (await credentialFile.exists()) {
       const credentials = await credentialFile.json();

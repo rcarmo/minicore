@@ -1,6 +1,7 @@
 import { render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { NetworkScene } from "./graph";
+import { NodeRoutes } from "./routes";
 import { NodeLogs } from "./logs";
 import { NodeConfiguration } from "./configuration";
 import { validateSnapshot } from "./topology";
@@ -170,6 +171,8 @@ function App() {
                   <dt>Observed at</dt>
                   <dd>{selected.observed_at ?? "not collected"}</dd>
                 </dl>
+              ) : tab === "Routing" ? (
+                <NodeRoutes key={selected.id} nodeId={selected.id} />
               ) : tab === "Configuration" ? (
                 <NodeConfiguration key={selected.id} nodeId={selected.id} />
               ) : tab === "Logs" ? (

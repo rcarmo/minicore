@@ -70,3 +70,7 @@ Feature: Generate and manage the declared containers from the host only
     Given a recording Docker executable instead of a real daemon
     When the host helper requests "up" for "p1" without local investigation
     Then it passes fixed Compose arguments for "up" and p1 only
+
+  Scenario: Keep fault SSH keys outside management mounts
+    When the canonical deployment is generated twice
+    Then management mounts only its HTTP credential directory and diagnostic client keys, never the parent secrets tree

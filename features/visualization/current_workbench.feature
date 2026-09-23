@@ -38,3 +38,6 @@ Feature: Current network workbench interactions
 
   Scenario: Render untrusted configuration as text and discard obsolete node responses
     Then configuration markup remains inert and a delayed P1 file never appears under P2
+
+  Scenario: Load permitted route evidence in the Routing inspector
+    Then the Routing tab displays a node-scoped evidence response and does not confuse transport errors with missing routes

@@ -6,6 +6,7 @@ from pathlib import Path
 from .model import Topology
 from .policy import Policy
 from .server import Server
+from .ssh_adapter import SSHAdapter
 
 
 def main():
@@ -20,6 +21,8 @@ def main():
         Path(os.environ.get("MINICORE_TOKEN_FILE", "/run/secrets/mcp-tokens.json")),
     )
     server = Server(topology, policy, root / "web-ui/dist")
+    if os.environ.get("MINICORE_SSH_DIR"):
+        server.adapter = SSHAdapter(topology, Path(os.environ["MINICORE_SSH_DIR"]))
     if policy.profile == "private":
         logging.warning(
             "Private lab profile: reachable anonymous callers have Operator access; no individual identity."

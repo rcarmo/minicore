@@ -7,6 +7,7 @@ from pathlib import Path
 from minicore_mcp.__main__ import main
 
 with tempfile.TemporaryDirectory(prefix="minicore-browser-") as temp:
+    os.environ.pop("MINICORE_SSH_DIR", None)
     os.environ.update(
         {
             "MINICORE_ROOT": str(Path(__file__).resolve().parents[1]),

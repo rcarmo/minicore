@@ -283,7 +283,7 @@ Then("the publication leaves no temporary file behind", async ({ host }) => {
 When("the secret initialization tool runs twice", async ({ host }) => {
   expect((await run(host, "init-secrets.ts")).code).toBe(0);
   host.secrets = await readFile(
-    join(host.dir, "secrets/mcp-tokens.json"),
+    join(host.dir, "secrets/http/mcp-tokens.json"),
     "utf8",
   );
   const first = host.result.out;
@@ -297,7 +297,7 @@ Then(
     expect(data.operator.length).toBeGreaterThanOrEqual(32);
     expect(data.god).not.toBe(data.operator);
     expect(
-      (await stat(join(host.dir, "secrets/mcp-tokens.json"))).mode & 0o777,
+      (await stat(join(host.dir, "secrets/http/mcp-tokens.json"))).mode & 0o777,
     ).toBe(0o600);
   },
 );
@@ -306,7 +306,7 @@ Then(
   async ({ host }) => {
     expect(host.result.code).not.toBe(0);
     expect(
-      await readFile(join(host.dir, "secrets/mcp-tokens.json"), "utf8"),
+      await readFile(join(host.dir, "secrets/http/mcp-tokens.json"), "utf8"),
     ).toBe(host.secrets);
   },
 );
@@ -436,5 +436,20 @@ Then(
       expect(c.services[id].volumes).toContain(
         `../configs/${id}/daemons:/etc/frr/daemons:ro`,
       );
+  },
+);
+Then(
+  "management mounts only its HTTP credential directory and diagnostic client keys, never the parent secrets tree",
+  async ({ host }) => {
+    const c = await compose(host);
+    expect(c.services.management.volumes).not.toContain(
+      "../secrets:/run/secrets:ro",
+    );
+    expect(c.services.management.volumes).toContain(
+      "../secrets/http:/run/secrets:ro",
+    );
+    expect(c.services.management.volumes).toContain(
+      "../secrets/ssh/client:/run/ssh-client:ro",
+    );
   },
 );

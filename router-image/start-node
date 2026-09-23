@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+# Bind only the known management address; never SSH on the simulated data links.
+mgmt=$(python3 -c 'import json;print(json.load(open("/etc/minicore/node.json"))["management_address"])')
+/usr/sbin/sshd -f /etc/ssh/sshd_config -o "ListenAddress=$mgmt"
+exec /usr/lib/frr/docker-start

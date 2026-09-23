@@ -186,3 +186,38 @@ Then(
     ).toBe(false);
   },
 );
+Then(
+  "the Routing tab displays a node-scoped evidence response and does not confuse transport errors with missing routes",
+  async ({ page }) => {
+    await page.route("**/api/v1/nodes/p1/routes", (route) =>
+      route.fulfill({
+        json: {
+          node_id: "p1",
+          operation: "get_routes",
+          status: "ok",
+          error_code: null,
+          generation: 1,
+          collected_at: "2026-09-23T00:00:00Z",
+          duration_ms: 4,
+          raw_evidence: "{}",
+          data: {
+            "10.200.8.0/29": [
+              { protocol: "bgp", nexthops: [{ ip: "10.254.0.3" }] },
+            ],
+          },
+        },
+      }),
+    );
+    await page.goto("/#p1");
+    await page.getByRole("button", { name: "Routing", exact: true }).click();
+    await expect(page.getByLabel("Node routing evidence")).toContainText(
+      "10.200.8.0/29",
+    );
+    await page.locator(".graph-label").filter({ hasText: /^P2$/ }).click();
+    await expect(
+      page.getByText("Routing evidence unavailable: backend_not_configured", {
+        exact: true,
+      }),
+    ).toBeVisible();
+  },
+);

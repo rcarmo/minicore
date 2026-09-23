@@ -1,7 +1,8 @@
 /** Create local credentials once; print only the destination, never values. */
-import { chmod } from "node:fs/promises";
+import { chmod, mkdir } from "node:fs/promises";
 import { root } from "./topology";
-const path = `${root}/secrets/mcp-tokens.json`;
+await mkdir(`${root}/secrets/http`, { recursive: true });
+const path = `${root}/secrets/http/mcp-tokens.json`;
 if (await Bun.file(path).exists())
   throw Error("Credentials already exist; refusing overwrite");
 await Bun.write(
@@ -13,5 +14,5 @@ await Bun.write(
 );
 await chmod(path, 0o600);
 console.log(
-  "Created secrets/mcp-tokens.json (0600). For container use, grant UID 10001 read access via ACL; never broaden world permissions.",
+  "Created secrets/http/mcp-tokens.json (0600). For container use, grant UID 10001 read access via ACL; never broaden world permissions.",
 );

@@ -6,11 +6,13 @@ import json
 import logging
 import re
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from aioumcp import AsyncMCPServer
 from umcp_shared import MCPHTTPResponse, get_request_context
 
+from .logs import LogStore
 from .model import Topology
 from .policy import GOD, OPERATOR, Policy
 
@@ -57,6 +59,7 @@ class Server(AsyncMCPServer):
     def __init__(self, topology: Topology, policy: Policy, assets: Path):
         self.topology, self.policy, self.assets = topology, policy, assets
         self.streams = 0
+        self.log_store = LogStore(topology, policy.credentials.values())
         super().__init__()
         self.streamable_http_max_sessions = 64
         self.streamable_http_request_timeout_seconds = 10
@@ -241,7 +244,33 @@ class Server(AsyncMCPServer):
         finally:
             self.streams -= 1
 
+    async def log_events(self, node):
+        previous = None
+        self.streams += 1
+        try:
+            for _ in range(30):
+                page = self.log_store.page(node, limit=1)
+                state = (page["data"]["revision"], page["error_code"], page["generation"])
+                if state != previous:
+                    kind = "logs.snapshot" if previous is None else "logs.changed"
+                    data = {
+                        "node_id": node,
+                        "generation": page["generation"],
+                        "revision": state[0],
+                        "status": page["status"],
+                        "error_code": page["error_code"],
+                    }
+                    yield f"event: {kind}\ndata: {json.dumps(data)}\n\n".encode()
+                    previous = state
+                else:
+                    yield b": heartbeat\n\n"
+                await asyncio.sleep(2)
+        finally:
+            self.streams -= 1
+
     async def handle_http_request_async(self, *, method, path, headers, body, peer):
+        target = urlsplit(path)
+        path = target.path
         if method != "GET":
             return self.response(405, {"error_code": "method_not_allowed"}, (("Allow", "GET"),))
         if path == "/healthz":
@@ -255,6 +284,45 @@ class Server(AsyncMCPServer):
                 {"error_code": "authentication_required"},
                 (("WWW-Authenticate", 'Basic realm="Minicore", charset="UTF-8"'),),
             )
+        log_match = re.fullmatch(r"/api/v1/nodes/([a-z0-9]+)/logs(/events)?", path)
+        if log_match:
+            node, event_stream = log_match.groups()
+            if node not in self.topology.nodes:
+                return self.response(404, {"error_code": "unknown_node"})
+            try:
+                query = parse_qs(
+                    target.query, keep_blank_values=True, strict_parsing=True, max_num_fields=3
+                )
+                if (
+                    set(query) - {"limit", "cursor"}
+                    or any(len(v) != 1 for v in query.values())
+                    or (event_stream and query)
+                ):
+                    raise ValueError("invalid_arguments")
+                limit_text = query.get("limit", ["100"])[0]
+                if not re.fullmatch(r"[0-9]{1,3}", limit_text):
+                    raise ValueError("invalid_limit")
+                result = self.log_store.page(node, int(limit_text), query.get("cursor", [None])[0])
+            except ValueError as exc:
+                code = (
+                    str(exc)
+                    if str(exc)
+                    in {"invalid_limit", "invalid_cursor", "cursor_expired", "invalid_arguments"}
+                    else "invalid_arguments"
+                )
+                return self.response(409 if code == "cursor_expired" else 400, {"error_code": code})
+            if event_stream:
+                if self.streams >= 16:
+                    return self.response(503, {"error_code": "stream_limit"})
+                return MCPHTTPResponse(
+                    200,
+                    content_type="text/event-stream",
+                    headers=(("Cache-Control", "no-store"), ("X-Accel-Buffering", "no")),
+                    stream=self.log_events(node),
+                )
+            return self.response(200 if result["status"] == "ok" else 503, result)
+        if target.query:
+            return self.response(400, {"error_code": "invalid_arguments"})
         if path == "/api/v1/topology":
             return self.response(200, self.topology.snapshot())
         if path == "/api/v1/events":
@@ -266,21 +334,11 @@ class Server(AsyncMCPServer):
                 headers=(("Cache-Control", "no-store"), ("X-Accel-Buffering", "no")),
                 stream=self.events(),
             )
-        match = re.fullmatch("/api/v1/nodes/([a-z0-9]+)/?(logs)?", path)
+        match = re.fullmatch("/api/v1/nodes/([a-z0-9]+)", path)
         if match:
-            node, logs = match.groups()
+            node = match.group(1)
             if node not in self.topology.nodes:
                 return self.response(404, {"error_code": "unknown_node"})
-            if logs:
-                return self.response(
-                    503,
-                    self.topology.envelope(
-                        "get_logs",
-                        node,
-                        data={"entries": [], "next_cursor": None},
-                        error="backend_not_configured",
-                    ),
-                )
             return self.response(
                 200,
                 self.topology.envelope(

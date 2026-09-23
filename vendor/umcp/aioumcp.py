@@ -2634,7 +2634,8 @@ class AsyncMCPServer:
                 try:
                     response = await self.handle_http_request_async(
                         method=method,
-                        path=path,
+                        # Minicore: preserve bounded query parameters for auxiliary APIs.
+                        path=target,
                         headers=headers,
                         body=body,
                         peer=peer[0] if peer else None,

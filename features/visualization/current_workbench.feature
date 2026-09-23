@@ -35,3 +35,6 @@ Feature: Current network workbench interactions
 
   Scenario: Browse a selected node's configuration file tree
     Then the Configuration tab shows declared files, renders selected file text and preserves the selected node
+
+  Scenario: Render untrusted configuration as text and discard obsolete node responses
+    Then configuration markup remains inert and a delayed P1 file never appears under P2

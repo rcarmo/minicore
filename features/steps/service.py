@@ -779,3 +779,18 @@ def configuration_sanitized(c):
     for secret in ["never-show-this", "do-not-show", "opaque-secret"]:
         assert secret not in data["content"]
     assert data["redacted"] is True
+
+
+@given("the p1 baseline contains a multiline private key")
+def configuration_private_key(c):
+    (c.server.config_root / "p1/frr.conf").write_text(
+        "hostname p1\n-----BEGIN PRIVATE KEY-----\ncHJpdmF0ZS1rZXktYm9keS1zaG91bGQtbm90LWJlLXZpc2libGU=\n-----END PRIVATE KEY-----\n"
+    )
+
+
+@then("no private key body or delimiter is present in the configuration response")
+def configuration_private_key_removed(c):
+    assert c.response.status == 200
+    content = json.loads(c.response.body)["data"]["content"]
+    assert "cHJpdmF0ZS1rZXktYm9keS1zaG91bGQtbm90LWJlLXZpc2libGU=" not in content
+    assert "-----BEGIN" not in content and "-----END" not in content

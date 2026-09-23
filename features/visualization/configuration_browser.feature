@@ -49,3 +49,8 @@ Feature: Read the declared configuration file tree for a node
     Given the p1 baseline contains secret-bearing configuration directives
     When "operator" requests "GET" "/api/v1/nodes/p1/config/frr.conf"
     Then the configuration secret values are absent and redaction is marked
+
+  Scenario: Remove private key bodies as well as their configuration delimiters
+    Given the p1 baseline contains a multiline private key
+    When "operator" requests "GET" "/api/v1/nodes/p1/config/frr.conf"
+    Then no private key body or delimiter is present in the configuration response

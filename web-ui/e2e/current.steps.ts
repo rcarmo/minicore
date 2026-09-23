@@ -131,3 +131,58 @@ Then(
     ).toBeVisible();
   },
 );
+Then(
+  "configuration markup remains inert and a delayed P1 file never appears under P2",
+  async ({ page }) => {
+    await page.route(
+      /\/api\/v1\/nodes\/(p1|p2)\/config(?:\/frr.conf)?$/,
+      async (route) => {
+        const path = new URL(route.request().url()).pathname,
+          node = path.split("/")[4];
+        if (path.endsWith("/config"))
+          return route.fulfill({
+            json: {
+              data: {
+                node_id: node,
+                source: "declared_baseline",
+                files: [{ name: "frr.conf" }],
+              },
+            },
+          });
+        if (node === "p1") await new Promise((r) => setTimeout(r, 800));
+        await route
+          .fulfill({
+            json: {
+              data: {
+                node_id: node,
+                name: "frr.conf",
+                source: "declared_baseline",
+                revision: "test",
+                redacted: false,
+                content: `${node} <img src=x onerror="window.configExecuted=true">`,
+              },
+            },
+          })
+          .catch(() => {});
+      },
+    );
+    await page.goto("/#p1");
+    await page
+      .getByRole("button", { name: "Configuration", exact: true })
+      .click();
+    await page.getByRole("button", { name: "frr.conf", exact: true }).click();
+    await page.locator(".graph-label").filter({ hasText: /^P2$/ }).click();
+    await page.getByRole("button", { name: "frr.conf", exact: true }).click();
+    await expect(page.getByLabel("Configuration file contents")).toContainText(
+      "p2 <img",
+    );
+    await page.waitForTimeout(1000);
+    await expect(
+      page.getByLabel("Configuration file contents"),
+    ).not.toContainText("p1");
+    expect(await page.locator(".config-content img").count()).toBe(0);
+    expect(
+      await page.evaluate(() => Boolean((window as any).configExecuted)),
+    ).toBe(false);
+  },
+);

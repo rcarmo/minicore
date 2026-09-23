@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
+import { FloatingPanel } from "./floating-panel";
+import { Topology2D } from "./topology-2d";
 import type { TopologySnapshot } from "./types";
 
 import {
@@ -17,16 +19,16 @@ export type { RoutingLayer } from "./routing-model";
 export function RoutingLayers({
   snapshot,
   layer,
-  onLayer,
   epoch,
   onFacts,
 }: {
   snapshot: TopologySnapshot;
   layer: RoutingLayer;
-  onLayer: (layer: RoutingLayer) => void;
   epoch: string;
   onFacts: (facts: ProtocolFact[]) => void;
 }) {
+  const [selectedFact, setSelectedFact] = useState<string | null>(null);
+  useEffect(() => setSelectedFact(null), [layer, epoch, snapshot.generation]);
   const [prefix, setPrefix] = useState(
     snapshot.prefixes?.[0] ?? "10.200.8.0/29",
   );
@@ -107,232 +109,253 @@ export function RoutingLayers({
     evidence?.data.nodes.map((n) => Date.parse(n.collected_at)) ?? [];
   const skew = times.length ? Math.max(...times) - Math.min(...times) : 0;
   return (
-    <section class="routing-layers" aria-label="Routing layers">
-      <nav aria-label="Network layers">
-        {(["Physical", "AS", "OSPF", "BGP", "Prefix"] as RoutingLayer[]).map(
-          (value) => (
-            <button
-              aria-pressed={value === layer}
-              onClick={() => onLayer(value)}
-            >
-              {value}
-            </button>
-          ),
-        )}
-      </nav>
-      <p>
-        Declared topology from inventory · overlays do not prove reachability.
-        Observations are non-atomic, on demand; stale after 30s.
-      </p>
-      {layer === "AS" && (
-        <ul>
-          {[65000, 65001, 65002].map((asn) => (
-            <li>
-              AS {asn}:{" "}
-              {routers
-                .filter((n) => n.asn === asn)
-                .map((n) => n.label)
-                .join(", ")}
-            </li>
-          ))}
-          <li>HOST1 / HOST2: attached endpoints, not BGP speakers</li>
-        </ul>
-      )}
-      {layer === "OSPF" && (
-        <>
-          <h2>Declared area 0 interfaces</h2>
-          <ul>
-            {snapshot.links
-              .filter((l) => l.ospf_area === "0")
-              .map((l) => (
-                <li>
-                  {l.source} ({l.interfaces?.[0]}) ↔ {l.target} (
-                  {l.interfaces?.[1]}) · area 0
-                </li>
-              ))}
-          </ul>
-          <details>
-            <summary>
-              Per-node OSPF observations — no inferred link health
-            </summary>
-            {routers.map((n) => (
-              <div>
-                <b>
-                  {n.label} · {freshness(node(n.id))}
-                </b>
-                <pre>
-                  {JSON.stringify(
-                    node(n.id)?.data?.ospf_neighbors ?? {
-                      status: node(n.id)?.error_code ?? "not collected",
-                    },
-                    null,
-                    2,
-                  )}
-                </pre>
-              </div>
-            ))}
-          </details>
-        </>
-      )}
-      {["BGP", "OSPF"].includes(layer) && (
-        <>
-          <h2>
-            {layer === "BGP"
-              ? "Declared logical sessions · not physical links"
-              : "OSPF interface endpoint observations"}
-          </h2>
-          <table aria-label={`${layer} endpoint observations`}>
-            <thead>
-              <tr>
-                <th>Relationship</th>
-                <th>Independent endpoint observations</th>
-              </tr>
-            </thead>
-            <tbody>
-              {facts.map((p) => (
-                <tr>
-                  <th>
-                    {p.source} ↔ {p.target}
-                  </th>
-                  <td>{p.text}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
-      {["BGP", "OSPF", "Prefix"].includes(layer) && (
-        <div class="routing-controls">
-          <label>
-            One prefix{" "}
-            <select
-              value={prefix}
-              onChange={(e) => setPrefix(e.currentTarget.value)}
-            >
-              {snapshot.prefixes?.map((p) => (
-                <option>{p}</option>
-              ))}
-            </select>
-          </label>
-          <button onClick={() => setRefresh((v) => v + 1)}>
-            Collect routing evidence
-          </button>
-          <span role="status">
-            {error ||
-              (evidence
-                ? `${evidence.status} · ${evidence.data.collected}/${routers.length} collected`
-                : "Collecting…")}
-          </span>
-        </div>
-      )}
-      {["BGP", "OSPF", "Prefix"].includes(layer) && (
+    <FloatingPanel title="Routing diagnostics">
+      <section class="routing-layers" aria-label="Routing layers">
         <p>
-          Collection skew: {skew} ms ·{" "}
-          {error
-            ? "Refresh failed; retained sample timestamp unchanged"
-            : "No atomic cross-node snapshot"}
+          Declared topology from inventory · overlays do not prove reachability.
+          Observations are non-atomic, on demand; stale after 30s.
         </p>
-      )}
-      {layer === "Prefix" && (
-        <section aria-label="Routing comparison">
-          <h3>Two-sample comparison</h3>
-          {changes === null ? (
-            <p>
-              {error || (evidence && !complete(evidence))
-                ? "Comparison unavailable — failed or partial refresh is not withdrawal"
-                : "Need two complete fresh samples in this prefix and generation"}
-            </p>
-          ) : changes.length ? (
+        {layer === "AS" && (
+          <ul>
+            {[65000, 65001, 65002].map((asn) => (
+              <li>
+                AS {asn}:{" "}
+                {routers
+                  .filter((n) => n.asn === asn)
+                  .map((n) => n.label)
+                  .join(", ")}
+              </li>
+            ))}
+            <li>HOST1 / HOST2: attached endpoints, not BGP speakers</li>
+          </ul>
+        )}
+        {layer === "OSPF" && (
+          <>
+            <h2>Declared area 0 interfaces</h2>
             <ul>
-              {changes.map((change) => (
-                <li>{change}</li>
-              ))}
+              {snapshot.links
+                .filter((l) => l.ospf_area === "0")
+                .map((l) => (
+                  <li>
+                    {l.source} ({l.interfaces?.[0]}) ↔ {l.target} (
+                    {l.interfaces?.[1]}) · area 0
+                  </li>
+                ))}
             </ul>
-          ) : (
-            <p>No observed changes</p>
-          )}
-          <small>
-            At most two successful samples retained. Stale, truncated or
-            cross-generation comparisons are suppressed.
-          </small>
-        </section>
-      )}
-      {layer === "Prefix" && (
-        <>
-          <h2>Exact prefix visibility</h2>
+            <details>
+              <summary>
+                Per-node OSPF observations — no inferred link health
+              </summary>
+              {routers.map((n) => (
+                <div>
+                  <b>
+                    {n.label} · {freshness(node(n.id))}
+                  </b>
+                  <pre>
+                    {JSON.stringify(
+                      node(n.id)?.data?.ospf_neighbors ?? {
+                        status: node(n.id)?.error_code ?? "not collected",
+                      },
+                      null,
+                      2,
+                    )}
+                  </pre>
+                </div>
+              ))}
+            </details>
+          </>
+        )}
+        {["BGP", "OSPF"].includes(layer) && (
+          <>
+            <h2>
+              {layer === "BGP"
+                ? "Declared logical sessions · not physical links"
+                : "OSPF interface endpoint observations"}
+            </h2>
+            <div class="protocol-workbench">
+              <Topology2D
+                snapshot={snapshot}
+                layer={layer}
+                facts={facts}
+                compact
+                selectedFact={selectedFact}
+                onFact={setSelectedFact}
+              />
+              <div class="protocol-table-scroll">
+                <table aria-label={`${layer} endpoint observations`}>
+                  <thead>
+                    <tr>
+                      <th>Relationship</th>
+                      <th>Independent endpoint observations</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {facts.map((p) => (
+                      <tr>
+                        <th>
+                          <button
+                            aria-label={`Inspect ${p.source} ↔ ${p.target}`}
+                            aria-pressed={selectedFact === p.id}
+                            onClick={() => setSelectedFact(p.id)}
+                          >
+                            {p.source} ↔ {p.target}
+                          </button>
+                        </th>
+                        <td>{p.text}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            {facts.find((p) => p.id === selectedFact) && (
+              <section
+                class="relationship-detail"
+                aria-label="Selected protocol relationship"
+              >
+                <p>{facts.find((p) => p.id === selectedFact)!.text}</p>
+                <button onClick={() => setSelectedFact(null)}>
+                  Clear relationship selection
+                </button>
+              </section>
+            )}
+          </>
+        )}
+        {["BGP", "OSPF", "Prefix"].includes(layer) && (
+          <div class="routing-controls">
+            <label>
+              One prefix{" "}
+              <select
+                value={prefix}
+                onChange={(e) => setPrefix(e.currentTarget.value)}
+              >
+                {snapshot.prefixes?.map((p) => (
+                  <option>{p}</option>
+                ))}
+              </select>
+            </label>
+            <button onClick={() => setRefresh((v) => v + 1)}>
+              Collect routing evidence
+            </button>
+            <span role="status">
+              {error ||
+                (evidence
+                  ? `${evidence.status} · ${evidence.data.collected}/${routers.length} collected`
+                  : "Collecting…")}
+            </span>
+          </div>
+        )}
+        {["BGP", "OSPF", "Prefix"].includes(layer) && (
           <p>
-            BGP paths ≠ IP RIB entries ≠ kernel forwarding entries ≠ sender
-            advertisements. Received pre-policy routes: not collected.
+            Collection skew: {skew} ms ·{" "}
+            {error
+              ? "Refresh failed; retained sample timestamp unchanged"
+              : "No atomic cross-node snapshot"}
           </p>
-          <table aria-label="Exact prefix evidence">
-            <thead>
-              <tr>
-                <th>Router / source</th>
-                <th>BGP</th>
-                <th>IP RIB</th>
-                <th>Kernel FIB</th>
-                <th>Peer exports</th>
-              </tr>
-            </thead>
-            <tbody>
-              {routers.map((router) => {
-                const n = node(router.id),
-                  data = n?.data;
-                const unavailable = n?.error_code ?? "not collected";
-                const paths = data?.bgp.paths;
-                return (
-                  <tr>
-                    <th>
-                      {router.label}
-                      <small>
-                        {n?.source ?? "node_dispatcher"} · {freshness(n)}
-                        <br />
-                        {n?.collected_at ?? "not collected"}
-                      </small>
-                    </th>
-                    <td>
-                      {data
-                        ? `${Array.isArray(paths) ? paths.length : "unknown"} paths`
-                        : unavailable}
-                    </td>
-                    <td>
-                      {data
-                        ? Object.hasOwn(data.rib, prefix)
-                          ? "exact entry"
-                          : "absent (exact)"
-                        : unavailable}
-                    </td>
-                    <td>
-                      {data ? `${data.fib.length} exact entries` : unavailable}
-                    </td>
-                    <td>
-                      {data
-                        ? data.advertised.map((a) => (
-                            <div>
-                              {a.peer}:{" "}
-                              {a.present ? "advertised" : "not advertised"} ·{" "}
-                              {a.source}
-                            </div>
-                          ))
-                        : unavailable}
-                      <details>
-                        <summary>Observation detail</summary>
-                        <pre>
-                          {JSON.stringify(
-                            n ?? { status: "not collected" },
-                            null,
-                            2,
-                          )}
-                        </pre>
-                      </details>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </>
-      )}
-    </section>
+        )}
+        {layer === "Prefix" && (
+          <section aria-label="Routing comparison">
+            <h3>Two-sample comparison</h3>
+            {changes === null ? (
+              <p>
+                {error || (evidence && !complete(evidence))
+                  ? "Comparison unavailable — failed or partial refresh is not withdrawal"
+                  : "Need two complete fresh samples in this prefix and generation"}
+              </p>
+            ) : changes.length ? (
+              <ul>
+                {changes.map((change) => (
+                  <li>{change}</li>
+                ))}
+              </ul>
+            ) : (
+              <p>No observed changes</p>
+            )}
+            <small>
+              At most two successful samples retained. Stale, truncated or
+              cross-generation comparisons are suppressed.
+            </small>
+          </section>
+        )}
+        {layer === "Prefix" && (
+          <>
+            <h2>Exact prefix visibility</h2>
+            <p>
+              BGP paths ≠ IP RIB entries ≠ kernel forwarding entries ≠ sender
+              advertisements. Received pre-policy routes: not collected.
+            </p>
+            <table aria-label="Exact prefix evidence">
+              <thead>
+                <tr>
+                  <th>Router / source</th>
+                  <th>BGP</th>
+                  <th>IP RIB</th>
+                  <th>Kernel FIB</th>
+                  <th>Peer exports</th>
+                </tr>
+              </thead>
+              <tbody>
+                {routers.map((router) => {
+                  const n = node(router.id),
+                    data = n?.data;
+                  const unavailable = n?.error_code ?? "not collected";
+                  const paths = data?.bgp.paths;
+                  return (
+                    <tr>
+                      <th>
+                        {router.label}
+                        <small>
+                          {n?.source ?? "node_dispatcher"} · {freshness(n)}
+                          <br />
+                          {n?.collected_at ?? "not collected"}
+                        </small>
+                      </th>
+                      <td>
+                        {data
+                          ? `${Array.isArray(paths) ? paths.length : "unknown"} paths`
+                          : unavailable}
+                      </td>
+                      <td>
+                        {data
+                          ? Object.hasOwn(data.rib, prefix)
+                            ? "exact entry"
+                            : "absent (exact)"
+                          : unavailable}
+                      </td>
+                      <td>
+                        {data
+                          ? `${data.fib.length} exact entries`
+                          : unavailable}
+                      </td>
+                      <td>
+                        {data
+                          ? data.advertised.map((a) => (
+                              <div>
+                                {a.peer}:{" "}
+                                {a.present ? "advertised" : "not advertised"} ·{" "}
+                                {a.source}
+                              </div>
+                            ))
+                          : unavailable}
+                        <details>
+                          <summary>Observation detail</summary>
+                          <pre>
+                            {JSON.stringify(
+                              n ?? { status: "not collected" },
+                              null,
+                              2,
+                            )}
+                          </pre>
+                        </details>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </>
+        )}
+      </section>
+    </FloatingPanel>
   );
 }

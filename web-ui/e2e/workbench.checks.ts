@@ -36,6 +36,7 @@ export async function webglFallback({ page }: { page: Page }) {
   });
   await page.goto("/");
   await expect(page.getByText("8 nodes / 9 links")).toBeVisible();
+  await page.getByRole("button", { name: "3D", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("WebGL2 unavailable");
   await page.getByRole("button", { name: "CE2", exact: true }).click();
   await expect(
@@ -68,6 +69,7 @@ export async function tabletPolling({ page }: { page: Page }) {
 
 export async function cameraControls({ page }: { page: Page }) {
   await page.goto("/");
+  await page.getByRole("button", { name: "3D", exact: true }).click();
   await expect(page.locator(".graph-label")).toHaveCount(8);
   const position = () =>
     page

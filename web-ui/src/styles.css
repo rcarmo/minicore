@@ -443,21 +443,407 @@ aside nav {
   padding: 0.5rem;
 }
 
-.protocol-label {
-  position: absolute;
-  z-index: 2;
-  pointer-events: none;
-  transform: translate(-50%, -50%);
-  background: #121d2de0;
-  border: 1px solid #476273;
-  border-radius: 3px;
-  padding: 2px 4px;
-  color: #c1d2da;
-  font-size: 9px;
-  max-width: 190px;
-  text-align: center;
-}
 .routing-layers button,
 .routing-layers select {
   min-height: 44px;
+}
+/* Bounded non-modal workbench: keep the network visible, scroll evidence locally. */
+button,
+select,
+input {
+  border-radius: 12px;
+}
+button {
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
+}
+button[aria-pressed="true"],
+button.active {
+  background: #21374a;
+  border-color: #65c4ce;
+  color: #eefbff;
+}
+button:focus-visible,
+select:focus-visible {
+  outline: 2px solid #86def0;
+  outline-offset: 3px;
+}
+.view-toolbar {
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.view-toolbar nav {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 16px;
+  background: #101c28;
+}
+.view-toolbar button {
+  min-height: 38px;
+  padding: 8px 14px;
+  border-radius: 12px;
+}
+.workspace {
+  display: block;
+  min-height: 0;
+  height: calc(100dvh - 155px);
+}
+.graph {
+  width: 100%;
+  height: 100%;
+  min-height: 430px;
+  border: 1px solid #263c4d;
+  border-radius: 20px;
+  overflow: hidden;
+}
+.graph-heading {
+  pointer-events: none;
+  max-width: 65%;
+}
+.graph-heading p,
+.legend {
+  font-size: 11px;
+}
+.legend {
+  max-width: 55%;
+  line-height: 1.65;
+}
+.topology-2d:not(.compact-topology) {
+  position: absolute;
+  left: 2%;
+  top: 105px;
+  width: 70%;
+  height: auto;
+  aspect-ratio: 1000 / 360;
+}
+.topology-2d svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.topology-2d .graph-label {
+  transform: translate(-50%, 22px);
+  border-radius: 10px;
+  font-size: 12px;
+  padding: 5px 9px;
+  background: #102130;
+  min-height: 30px;
+  z-index: 3;
+}
+.physical-edge {
+  stroke: #52697d;
+  stroke-width: 2;
+  stroke-dasharray: 5 5;
+}
+.protocol-edge {
+  fill: none;
+  stroke: #788796;
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+  cursor: pointer;
+}
+.protocol-edge[data-state="up"] {
+  stroke: #66c8b4;
+}
+.protocol-edge[data-state="conflict"] {
+  stroke: #edb566;
+}
+.protocol-edge[data-selected="true"] {
+  stroke-width: 4;
+  stroke-dasharray: none;
+}
+.node-shape > circle,
+.node-shape > rect {
+  fill: #233748;
+  stroke: #80abbf;
+  stroke-width: 2;
+}
+.node-core > circle {
+  fill: #745527;
+  stroke: #e2b777;
+}
+.node-ce > circle {
+  fill: #1d585d;
+  stroke: #79c3c9;
+}
+.node-pe > circle {
+  fill: #224d74;
+  stroke: #7baee0;
+}
+.node-shape[data-selected="true"] > circle,
+.node-shape[data-selected="true"] > rect {
+  stroke: #f4faff;
+  stroke-width: 3;
+}
+.node-mark {
+  fill: none;
+  stroke: #d9eafa;
+  stroke-width: 2;
+}
+.domain-band rect {
+  fill: #447c9116;
+  stroke: #55768b;
+  stroke-dasharray: 4 4;
+}
+.domain-band text {
+  fill: #a2b9ca;
+  font-size: 12px;
+}
+.node-shape text {
+  fill: #d4e4ee;
+  font-size: 12px;
+}
+.node-shape .agent-ring {
+  fill: none;
+  stroke: #12e6ef;
+  stroke-width: 3;
+  filter: drop-shadow(0 0 4px #de4dcc);
+}
+.floating-panel {
+  position: fixed;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #3a5369;
+  border-radius: 18px;
+  background: #101b28f7;
+  box-shadow: 0 16px 45px #0007;
+  overflow: hidden;
+  max-width: calc(100vw - 16px);
+}
+.floating-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #1b2a3c;
+  border-bottom: 1px solid #364d60;
+  flex-shrink: 0;
+}
+.floating-titlebar button {
+  border: 0;
+  border-radius: 10px;
+  min-height: 32px;
+}
+.panel-drag {
+  flex: 1;
+  text-align: left;
+  cursor: grab;
+  touch-action: none;
+  font-weight: 600;
+  font-size: 12px;
+  background: transparent;
+}
+.panel-drag span {
+  margin-right: 6px;
+  color: #739aac;
+}
+.panel-minimize {
+  width: 34px;
+  font-size: 18px;
+  background: #2b3e53;
+}
+.floating-body {
+  overflow: auto;
+  min-height: 0;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #587184 #152333;
+}
+.floating-body[hidden] {
+  display: none;
+}
+.floating-inspector {
+  right: 18px;
+  top: 158px;
+  width: 300px;
+  max-height: min(58vh, 620px);
+}
+.floating-inspector aside {
+  border: 0;
+  padding: 16px;
+  min-height: 0;
+}
+.floating-inspector h2 {
+  font-size: 20px;
+  margin: 0 0 12px;
+}
+.floating-inspector nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.floating-inspector nav button {
+  min-height: 36px;
+  padding: 6px 9px;
+  border-radius: 10px;
+}
+.floating-routing {
+  right: 338px;
+  bottom: 34px;
+  width: min(760px, 58vw);
+  max-height: min(43vh, 520px);
+}
+.routing-layers {
+  border: 0;
+  background: none;
+  margin: 0;
+  padding: 14px 16px;
+  overflow: visible;
+  font-size: 12px;
+}
+.routing-layers h2 {
+  font-size: 16px;
+}
+.routing-layers h3 {
+  font-size: 14px;
+}
+.routing-layers p {
+  line-height: 1.55;
+  color: #9cb3c7;
+}
+.routing-layers table {
+  font-size: 11px;
+}
+.routing-layers td,
+.routing-layers th {
+  padding: 8px;
+}
+.routing-layers button {
+  min-height: 34px;
+  border-radius: 10px;
+}
+.routing-controls {
+  position: sticky;
+  bottom: -14px;
+  background: #152436;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid #32495d;
+}
+.protocol-workbench {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.compact-topology {
+  position: relative;
+  left: auto;
+  top: auto;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1000 / 260;
+  border-radius: 12px;
+  background: #0b1520;
+}
+.protocol-table-scroll {
+  overflow: auto;
+}
+.relationship-detail {
+  border-radius: 12px;
+  border: 1px solid #437380;
+  background: #19313b;
+  padding: 10px;
+  margin: 10px 0;
+}
+.floating-panel[data-minimized="true"] {
+  width: 240px;
+}
+@media (min-width: 1800px) {
+  .floating-routing {
+    width: min(1000px, 60vw);
+  }
+  .protocol-workbench {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+  .compact-topology {
+    flex: 1;
+    min-width: 330px;
+  }
+  .protocol-table-scroll {
+    flex: 1;
+  }
+}
+@media (max-width: 1050px) {
+  .floating-inspector {
+    width: 260px;
+    top: 165px;
+    right: 12px;
+    max-height: 43vh;
+  }
+  .topology-2d:not(.compact-topology) {
+    width: calc(100% - 286px);
+    left: 12px;
+    top: 125px;
+  }
+  .floating-routing {
+    width: calc(100vw - 40px);
+    right: 20px;
+    bottom: 34px;
+    max-height: 39vh;
+  }
+}
+@media (max-width: 600px) {
+  .workspace {
+    height: calc(100dvh - 210px);
+  }
+  .topology-2d:not(.compact-topology) {
+    width: calc(100% - 24px);
+    top: 78px;
+    height: auto;
+  }
+  .floating-inspector {
+    top: auto;
+    bottom: 36px;
+    max-height: 32vh;
+    width: 240px;
+  }
+  .floating-routing {
+    max-height: 42vh;
+    z-index: 13;
+  }
+  .graph-heading {
+    max-width: 90%;
+  }
+  .legend {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  button {
+    transition: none;
+  }
+}
+
+.compact-topology {
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.compact-topology svg {
+  display: block;
+}
+.topology-2d svg {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+.topology-2d:not(.compact-topology) {
+  top: 54px;
+  width: min(70%, 80dvh);
+}
+@media (max-width: 1050px) {
+  .topology-2d:not(.compact-topology) {
+    top: 74px;
+    width: calc(100% - 286px);
+  }
+}
+@media (max-width: 600px) {
+  .topology-2d:not(.compact-topology) {
+    top: 78px;
+    width: calc(100% - 24px);
+  }
 }

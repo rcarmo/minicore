@@ -18,10 +18,6 @@ export class NetworkScene {
   private readonly devices = new THREE.Group();
   private readonly links = new THREE.Group();
   private readonly overlay = new THREE.Group();
-  private protocolLabels: {
-    element: HTMLSpanElement;
-    position: THREE.Vector3;
-  }[] = [];
   private facts: ProtocolFact[] = [];
   private layer: RoutingLayer = "Physical";
   private readonly activity = new THREE.Group();
@@ -176,8 +172,6 @@ export class NetworkScene {
     this.setLayer(this.layer);
   }
   setLayer(layer: RoutingLayer) {
-    this.protocolLabels.forEach((label) => label.element.remove());
-    this.protocolLabels = [];
     this.layer = layer;
     for (const child of [...this.overlay.children]) {
       const mesh = child as THREE.Mesh;
@@ -239,14 +233,6 @@ export class NetworkScene {
         );
         line.computeLineDistances();
         this.overlay.add(line);
-        const fact = this.facts.find((f) => f.id === p.id);
-        if (fact) {
-          const element = document.createElement("span");
-          element.className = "protocol-label";
-          element.textContent = fact.text;
-          this.canvas.parentElement?.appendChild(element);
-          this.protocolLabels.push({ element, position: curve.getPoint(0.5) });
-        }
       }
   }
   setActivity(ids: string[]) {
@@ -343,12 +329,6 @@ export class NetworkScene {
   private updateLabels() {
     if (!this.snapshot) return;
     const r = this.canvas.getBoundingClientRect();
-    for (const label of this.protocolLabels) {
-      const p = label.position.clone().project(this.camera);
-      label.element.hidden = p.z < -1 || p.z > 1;
-      label.element.style.left = `${((p.x + 1) * r.width) / 2}px`;
-      label.element.style.top = `${((1 - p.y) * r.height) / 2}px`;
-    }
     for (const n of this.snapshot.nodes) {
       const el = this.labels.get(n.id);
       if (!el) continue;
@@ -401,8 +381,6 @@ export class NetworkScene {
       });
       group.clear();
     }
-    this.protocolLabels.forEach((l) => l.element.remove());
-    this.protocolLabels = [];
     this.labels.forEach((v) => v.remove());
     this.labels.clear();
     this.nodeMeshes = [];

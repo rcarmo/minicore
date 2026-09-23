@@ -90,3 +90,9 @@ Feature: Current network workbench interactions
 
   Scenario: Changed declared peer metadata invalidates existing routing facts
     Then changed peer addresses within a generation clear routing evidence until recollected
+
+  Scenario: Protocol observations never obscure network nodes
+    Then BGP and OSPF keep every node unobscured and show only the selected relationship outside the graph
+
+  Scenario: Floating diagnostics preserve a usable two-dimensional topology
+    Then the default 2D topology stays readable beside rounded scrollable movable diagnostic panels

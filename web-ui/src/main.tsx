@@ -1,6 +1,8 @@
 import { render } from "preact";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import type { ProtocolFact } from "./routing-model";
+import { FloatingPanel } from "./floating-panel";
+import { Topology2D } from "./topology-2d";
 import { NetworkScene } from "./graph";
 import {
   ControllerState,
@@ -18,6 +20,8 @@ import type { TopologySnapshot } from "./types";
 import "./styles.css";
 
 function App() {
+  const [dimension, setDimension] = useState<"2D" | "3D">("2D");
+  const [facts, setFacts] = useState<ProtocolFact[]>([]);
   const [layer, setLayer] = useState<RoutingLayer>("Physical");
   const [view, setView] = useState<ViewMode>("agent");
   const capable = useGodCapability();
@@ -43,10 +47,10 @@ function App() {
   useEffect(() => {
     scene.current?.setLayer(layer);
   }, [layer, snapshot]);
-  const updateFacts = useCallback(
-    (facts: ProtocolFact[]) => scene.current?.setProtocolFacts(facts),
-    [],
-  );
+  const updateFacts = useCallback((facts: ProtocolFact[]) => {
+    setFacts(facts);
+    scene.current?.setProtocolFacts(facts);
+  }, []);
   const selected = snapshot?.nodes.find((n) => n.id === selectedId);
 
   function select(id: string | null) {
@@ -55,17 +59,28 @@ function App() {
   }
 
   useEffect(() => {
+    if (dimension !== "3D") {
+      scene.current = undefined;
+      return;
+    }
+    setGraphError("");
     try {
       if (!canvas.current?.getContext("webgl2"))
         throw Error("WebGL2 unavailable — use the node and link lists below");
       scene.current = new NetworkScene(canvas.current, (node) =>
         select(node?.id ?? null),
       );
+      if (snapshot) scene.current.setSnapshot(snapshot);
+      scene.current.setLayer(layer);
+      scene.current.setProtocolFacts(facts);
     } catch (e) {
       setGraphError(e instanceof Error ? e.message : "Graph unavailable");
     }
-    return () => scene.current?.dispose();
-  }, []);
+    return () => {
+      scene.current?.dispose();
+      scene.current = undefined;
+    };
+  }, [dimension]);
 
   useEffect(() => {
     let disposed = false;
@@ -148,21 +163,59 @@ function App() {
       </header>
       <div class="view-toolbar">
         <VisibilityToggle view={view} capable={capable} onChange={changeView} />
+        <nav aria-label="Network layers">
+          {(["Physical", "AS", "OSPF", "BGP", "Prefix"] as RoutingLayer[]).map(
+            (name) => (
+              <button
+                aria-pressed={layer === name}
+                onClick={() => setLayer(name)}
+              >
+                {name}
+              </button>
+            ),
+          )}
+        </nav>
+        <nav aria-label="Topology dimension">
+          {(["2D", "3D"] as const).map((name) => (
+            <button
+              aria-pressed={dimension === name}
+              onClick={() => setDimension(name)}
+            >
+              {name}
+            </button>
+          ))}
+        </nav>
       </div>
       <section class="workspace">
         <div class="graph">
-          <canvas ref={canvas} aria-label="Interactive network topology" />
+          {dimension === "2D" ? (
+            snapshot && (
+              <Topology2D
+                snapshot={snapshot}
+                selected={selectedId}
+                onSelect={select}
+                layer={layer}
+                activity={activityNodes}
+                facts={facts}
+              />
+            )
+          ) : (
+            <canvas ref={canvas} aria-label="Interactive network topology" />
+          )}
           <div class="graph-heading">
             <b>
               {snapshot?.nodes.length ?? 0} nodes /{" "}
               {snapshot?.links.length ?? 0} links
             </b>
-            <p>Expected topology · observed routing unknown</p>
+            <p>{layer} · declared links / independent protocol observations</p>
           </div>
           <div class="legend">
-            Drag: orbit · Right drag: pan · Scroll/pinch: zoom
+            {dimension === "3D"
+              ? "Drag: orbit · Right drag: pan · Scroll/pinch: zoom"
+              : "Select a node · Protocol details in the diagnostic panel"}
             <br />
-            Dashed links: expected, not observed
+            Dashed links: declared · Teal: both endpoints up · Amber:
+            disagreement · Muted: unknown
           </div>
           <div class="graph-tools">
             <button onClick={() => scene.current?.reset()}>Reset view</button>
@@ -173,118 +226,120 @@ function App() {
             </div>
           )}
         </div>
-        <aside aria-label="Node inspector">
-          <h2>{selected?.label ?? "Select a node"}</h2>
-          {view === "god" && snapshot && (
-            <ControllerState
-              value={
-                (snapshot as unknown as { controller?: unknown }).controller
-              }
-            />
-          )}
+        <FloatingPanel title="Node inspector" kind="inspector">
+          <aside aria-label="Node inspector">
+            <h2>{selected?.label ?? "Select a node"}</h2>
+            {view === "god" && snapshot && (
+              <ControllerState
+                value={
+                  (snapshot as unknown as { controller?: unknown }).controller
+                }
+              />
+            )}
 
-          {selected ? (
-            <>
-              <p class="role">
-                {selected.role.toUpperCase()} · {selected.kind}
-              </p>
-              <nav aria-label="Node evidence sections">
-                {[
-                  "Summary",
-                  "Interfaces",
-                  "Routing",
-                  "Logs",
-                  "Configuration",
-                ].map((name) => (
-                  <button
-                    aria-pressed={tab === name}
-                    onClick={() => setTab(name)}
-                  >
-                    {name}
-                  </button>
-                ))}
-              </nav>
-              {tab === "Summary" ? (
-                <dl>
-                  <dt>Observed state</dt>
-                  <dd>{selected.state}</dd>
-                  <dt>Container</dt>
-                  <dd>{selected.container_state ?? "unknown"}</dd>
-                  <dt>Expected</dt>
-                  <dd>yes</dd>
-                  <dt>Protocols</dt>
-                  <dd>{selected.protocols.join(", ") || "none"}</dd>
-                  <dt>Observed at</dt>
-                  <dd>{selected.observed_at ?? "not collected"}</dd>
-                </dl>
-              ) : tab === "Routing" ? (
-                <NodeRoutes key={selected.id} nodeId={selected.id} />
-              ) : tab === "Configuration" ? (
-                <NodeConfiguration key={selected.id} nodeId={selected.id} />
-              ) : tab === "Logs" ? (
-                <NodeLogs
-                  key={`${selected.id}:${snapshot?.generation}`}
-                  nodeId={selected.id}
-                  generation={snapshot!.generation}
-                />
-              ) : (
-                <p class="notice">
-                  {tab} evidence unavailable: backend_not_configured
+            {selected ? (
+              <>
+                <p class="role">
+                  {selected.role.toUpperCase()} · {selected.kind}
                 </p>
-              )}
-              <h3>Connections</h3>
-              <ul>
-                {snapshot?.links
-                  .filter(
-                    (l) => l.source === selected.id || l.target === selected.id,
-                  )
-                  .map((l) => (
-                    <li key={l.id}>
-                      {l.source} ↔ {l.target} <small>({l.state})</small>
-                    </li>
+                <nav aria-label="Node evidence sections">
+                  {[
+                    "Summary",
+                    "Interfaces",
+                    "Routing",
+                    "Logs",
+                    "Configuration",
+                  ].map((name) => (
+                    <button
+                      aria-pressed={tab === name}
+                      onClick={() => setTab(name)}
+                    >
+                      {name}
+                    </button>
                   ))}
+                </nav>
+                {tab === "Summary" ? (
+                  <dl>
+                    <dt>Observed state</dt>
+                    <dd>{selected.state}</dd>
+                    <dt>Container</dt>
+                    <dd>{selected.container_state ?? "unknown"}</dd>
+                    <dt>Expected</dt>
+                    <dd>yes</dd>
+                    <dt>Protocols</dt>
+                    <dd>{selected.protocols.join(", ") || "none"}</dd>
+                    <dt>Observed at</dt>
+                    <dd>{selected.observed_at ?? "not collected"}</dd>
+                  </dl>
+                ) : tab === "Routing" ? (
+                  <NodeRoutes key={selected.id} nodeId={selected.id} />
+                ) : tab === "Configuration" ? (
+                  <NodeConfiguration key={selected.id} nodeId={selected.id} />
+                ) : tab === "Logs" ? (
+                  <NodeLogs
+                    key={`${selected.id}:${snapshot?.generation}`}
+                    nodeId={selected.id}
+                    generation={snapshot!.generation}
+                  />
+                ) : (
+                  <p class="notice">
+                    {tab} evidence unavailable: backend_not_configured
+                  </p>
+                )}
+                <h3>Connections</h3>
+                <ul>
+                  {snapshot?.links
+                    .filter(
+                      (l) =>
+                        l.source === selected.id || l.target === selected.id,
+                    )
+                    .map((l) => (
+                      <li key={l.id}>
+                        {l.source} ↔ {l.target} <small>({l.state})</small>
+                      </li>
+                    ))}
+                </ul>
+              </>
+            ) : (
+              <p>Choose a device to browse its state, connections and logs.</p>
+            )}
+            <details open={!selected || !!graphError}>
+              <summary>All nodes · accessible view</summary>
+              <ul class="node-list">
+                {snapshot?.nodes.map((n) => (
+                  <li key={n.id}>
+                    <button
+                      onClick={() => select(n.id)}
+                      aria-pressed={n.id === selectedId}
+                    >
+                      {n.label}
+                    </button>{" "}
+                    <small>
+                      {n.role} / {n.state}
+                      {activityNodes.includes(n.id) ? " · Agent access" : ""}
+                    </small>
+                  </li>
+                ))}
               </ul>
-            </>
-          ) : (
-            <p>Choose a device to browse its state, connections and logs.</p>
-          )}
-          <details open={!selected || !!graphError}>
-            <summary>All nodes · accessible view</summary>
-            <ul class="node-list">
-              {snapshot?.nodes.map((n) => (
-                <li key={n.id}>
-                  <button
-                    onClick={() => select(n.id)}
-                    aria-pressed={n.id === selectedId}
-                  >
-                    {n.label}
-                  </button>{" "}
-                  <small>
-                    {n.role} / {n.state}
-                    {activityNodes.includes(n.id) ? " · Agent access" : ""}
-                  </small>
-                </li>
-              ))}
-            </ul>
-          </details>
-          <details>
-            <summary>All connections</summary>
-            <ul>
-              {snapshot?.links.map((l) => (
-                <li key={l.id}>
-                  {l.source} ↔ {l.target}
-                </li>
-              ))}
-            </ul>
-          </details>
-        </aside>
+            </details>
+            <details>
+              <summary>All connections</summary>
+              <ul>
+                {snapshot?.links.map((l) => (
+                  <li key={l.id}>
+                    {l.source} ↔ {l.target}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          </aside>
+        </FloatingPanel>
       </section>
-      {snapshot && (
+      {snapshot && layer !== "Physical" && (
         <RoutingLayers
           key={`${view}:${snapshot.generation}`}
           snapshot={snapshot}
           layer={layer}
-          onLayer={setLayer}
           epoch={view}
           onFacts={updateFacts}
         />

@@ -632,16 +632,19 @@ Then(
     await page.goto("/#p1");
     for (const layer of ["BGP", "OSPF"]) {
       await page.getByRole("button", { name: layer, exact: true }).click();
-      const labels = page.locator(".protocol-label");
-      await expect(labels).toHaveCount(layer === "BGP" ? 8 : 5);
+      const labels = page.locator(".graph .protocol-label");
+      await expect(labels).toHaveCount(0);
       const table = page.getByRole("table", {
         name: `${layer} endpoint observations`,
       });
       await expect(table).toContainText(
         layer === "BGP" ? "Established" : "Full/-",
       );
-      for (const text of await labels.allTextContents())
-        await expect(table).toContainText(text);
+      for (const title of await page
+        .getByLabel("Protocol relationship graph", { exact: true })
+        .locator(".protocol-edge title")
+        .allTextContents())
+        await expect(table).toContainText(title);
     }
     await expect(page.locator(".graph-label")).toHaveCount(8);
   },
@@ -776,9 +779,7 @@ Then(
           page.getByRole("heading", { name: "P1", exact: true }),
         ).toBeVisible();
         await expect(page.locator(".graph-label")).toHaveCount(8);
-        await expect(page.locator(".protocol-label")).toHaveCount(
-          name === "BGP" ? 8 : name === "OSPF" ? 5 : 0,
-        );
+        await expect(page.locator(".protocol-label")).toHaveCount(0);
         const box = await button.boundingBox();
         expect(box!.height).toBeGreaterThanOrEqual(32);
       }
@@ -853,6 +854,7 @@ Then(
     });
     await page.setViewportSize({ width: 820, height: 1180 });
     await page.goto("/");
+    await page.getByRole("button", { name: "3D", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("WebGL2 unavailable");
     await page
       .locator(".node-list")
@@ -897,5 +899,146 @@ Then(
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
+  },
+);
+
+Then(
+  "BGP and OSPF keep every node unobscured and show only the selected relationship outside the graph",
+  async ({ page }) => {
+    const fixture = await routingFixture(page);
+    await page.route("**/api/v1/routing?*", (r) =>
+      r.fulfill({ json: fixture("10.200.8.0/29") }),
+    );
+    await page.goto("/#p1");
+    for (const width of [1600, 820]) {
+      await page.setViewportSize({ width, height: 1100 });
+      for (const layer of ["BGP", "OSPF"]) {
+        await page.getByRole("button", { name: layer, exact: true }).click();
+        await expect(
+          page.getByRole("region", { name: "Routing layers" }),
+        ).toContainText("6/6 collected");
+        await expect(page.locator(".graph .protocol-label")).toHaveCount(0);
+        await expect(page.locator(".graph-label")).toHaveCount(8);
+        for (const button of await page.locator(".graph-label").all()) {
+          await expect(button).toBeVisible();
+          const hit = await button.evaluate((el) => {
+            const r = el.getBoundingClientRect();
+            const over = document.elementFromPoint(
+              r.x + r.width / 2,
+              r.y + r.height / 2,
+            );
+            return {
+              ok: el.contains(over),
+              label: el.textContent,
+              over: over?.outerHTML.slice(0, 250),
+              rect: { x: r.x, y: r.y, w: r.width, h: r.height },
+            };
+          });
+          expect(hit.ok, JSON.stringify({ width, layer, ...hit })).toBe(true);
+        }
+        const table = page.getByRole("table", {
+          name: `${layer} endpoint observations`,
+        });
+        await table
+          .getByRole("button", { name: "Inspect p1 ↔ p2", exact: true })
+          .click();
+        const detail = page.getByRole("region", {
+          name: "Selected protocol relationship",
+        });
+        await expect(detail).toContainText("p1 ↔ p2");
+        await expect(
+          page
+            .locator(".graph")
+            .getByRole("region", { name: "Selected protocol relationship" }),
+        ).toHaveCount(0);
+        await page.locator(".graph-label").filter({ hasText: /^P2$/ }).click();
+        await expect(
+          page.getByRole("heading", { name: "P2", exact: true }),
+        ).toBeVisible();
+        await page
+          .getByRole("button", { name: "Clear relationship selection" })
+          .click();
+        await expect(detail).toHaveCount(0);
+      }
+    }
+  },
+);
+
+Then(
+  "the default 2D topology stays readable beside rounded scrollable movable diagnostic panels",
+  async ({ page }) => {
+    const fixture = await routingFixture(page);
+    await page.route("**/api/v1/routing?*", (r) =>
+      r.fulfill({ json: fixture("10.200.8.0/29") }),
+    );
+    await page.goto("/#p1");
+    await expect(
+      page.getByRole("button", { name: "2D", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(
+      page.getByLabel("2D network topology", { exact: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "BGP", exact: true }).click();
+    const panel = page.getByRole("region", {
+      name: "Routing diagnostics",
+      exact: true,
+    });
+    await expect(panel).toBeVisible();
+    await expect(
+      panel.getByLabel("Protocol relationship graph", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      panel.getByRole("table", { name: "BGP endpoint observations" }),
+    ).toBeVisible();
+    expect(
+      await panel
+        .locator(".floating-body")
+        .evaluate((el) => getComputedStyle(el).overflowY),
+    ).toBe("auto");
+    expect(
+      await panel.evaluate((el) =>
+        parseFloat(getComputedStyle(el).borderRadius),
+      ),
+    ).toBeGreaterThanOrEqual(12);
+    const button = page.getByRole("button", { name: "BGP", exact: true });
+    expect(
+      await button.evaluate((el) =>
+        parseFloat(getComputedStyle(el).borderRadius),
+      ),
+    ).toBeGreaterThanOrEqual(10);
+    const before = (await panel.boundingBox())!;
+    expect(before.height).toBeLessThan(900 * 0.65);
+    expect(before.width).toBeLessThan(1440 * 0.65);
+    const handle = panel.getByRole("button", {
+      name: "Move Routing diagnostics",
+    });
+    await handle.focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect
+      .poll(async () => Math.round((await panel.boundingBox())!.x))
+      .toBeLessThan(Math.round(before.x));
+    const grab = (await handle.boundingBox())!;
+    await page.mouse.move(grab.x + 20, grab.y + 20);
+    await page.mouse.down();
+    await page.mouse.move(grab.x - 40, grab.y - 20, { steps: 5 });
+    await page.mouse.up();
+    await expect
+      .poll(async () => Math.round((await panel.boundingBox())!.x))
+      .toBeLessThan(Math.round(before.x) - 20);
+    await panel
+      .getByRole("button", { name: "Minimize Routing diagnostics" })
+      .click();
+    await expect(panel.locator(".floating-body")).toBeHidden();
+    await panel
+      .getByRole("button", { name: "Restore Routing diagnostics" })
+      .click();
+    await expect(panel.locator(".floating-body")).toBeVisible();
+    await page.setViewportSize({ width: 820, height: 1180 });
+    const box = (await panel.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(820);
+    expect(box.height).toBeLessThan(1180 * 0.6);
+    await expect(page.locator(".graph-label")).toHaveCount(8);
   },
 );

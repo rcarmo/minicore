@@ -207,7 +207,10 @@ class Server(AsyncMCPServer):
             }
         elif name == "list_fault_scenarios":
             data = {"scenarios": [{"id": s, "available": False} for s in SCENARIOS]}
-        elif name == "get_routes" and self.adapter is not None:
+        elif (
+            name in {"get_routes", "get_interfaces", "get_neighbors", "ping"}
+            and self.adapter is not None
+        ):
             execution = await self.adapter.execute(
                 args["node_id"],
                 {"operation": name, **{k: v for k, v in args.items() if k != "node_id"}},
@@ -218,7 +221,10 @@ class Server(AsyncMCPServer):
         result = self.topology.envelope(
             name, args.get("node_id"), data=data, error=error, request_id=trace
         )
-        if name == "get_routes" and self.adapter is not None:
+        if (
+            name in {"get_routes", "get_interfaces", "get_neighbors", "ping"}
+            and self.adapter is not None
+        ):
             result.update(execution)
         self.logger.info(
             json.dumps(

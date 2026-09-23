@@ -20,3 +20,20 @@ Feature: Collect real router routes through restricted SSH and MCP
     Then only the validating dispatcher runs and the request is rejected
     And forwarding and PTY requests are refused
     And the diagnostic identity cannot write the FRR configuration
+
+  Scenario: Execute all five Operator tools against real nodes
+    Given diagnostic keys and pinned node host keys have been provisioned
+    And the lab routers and management service are running with the SSH adapter
+    When the official MCP client invokes inventory, interfaces, routes, BGP, OSPF and ping
+    Then every call returns observed evidence with matching text and structured data
+    And interfaces expose only data interfaces rather than management state
+    And an adjacent-router probe returns sent, received, loss and RTT measurements
+    And a customer-endpoint probe without a return route reports measured loss rather than a transport failure
+    And an unapproved management destination is denied before SSH execution
+
+  Scenario: Preserve enabled empty and disabled protocol states
+    Given diagnostic keys and pinned node host keys have been provisioned
+    And the lab routers and management service are running with the SSH adapter
+    When the official client reads provider adjacencies and a customer's undeclared OSPF
+    Then the provider evidence contains Full neighbors and Established BGP peers
+    And the customer OSPF request reports protocol_not_enabled

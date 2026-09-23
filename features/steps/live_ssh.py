@@ -206,3 +206,121 @@ def no_write(c):
         capture_output=True,
     )
     assert p.returncode != 0
+
+
+@when("the official MCP client invokes inventory, interfaces, routes, BGP, OSPF and ping")
+def all_live_tools(c):
+    async def call():
+        async with streamable_http_client("http://127.0.0.1:19000/mcp") as (read, write, _):
+            async with ClientSession(
+                read, write, read_timeout_seconds=timedelta(seconds=20)
+            ) as client:
+                await client.initialize()
+                results = {}
+                cases = [
+                    ("inventory", "list_nodes", {}),
+                    ("interfaces", "get_interfaces", {"node_id": "p1"}),
+                    ("routes", "get_routes", {"node_id": "p1"}),
+                    ("bgp", "get_neighbors", {"node_id": "p1", "protocol": "bgp"}),
+                    ("ospf", "get_neighbors", {"node_id": "p1", "protocol": "ospf"}),
+                    ("probe", "ping", {"node_id": "p1", "destination": "10.200.1.3", "count": 2}),
+                ]
+                for key, tool, args in cases:
+                    results[key] = await client.call_tool(tool, args)
+                results["loss"] = await client.call_tool(
+                    "ping", {"node_id": "p1", "destination": "10.200.9.2", "count": 2}
+                )
+                # The Docker-reserved unused address is not inventory-approved; invalid targets are denied.
+                try:
+                    results["denied"] = await client.call_tool(
+                        "ping", {"node_id": "p1", "destination": "172.30.250.2", "count": 1}
+                    )
+                except Exception as exc:
+                    results["denied"] = str(exc)
+                return results
+
+    c.live = asyncio.run(call())
+
+
+@then("every call returns observed evidence with matching text and structured data")
+def all_results(c):
+    for key, result in c.live.items():
+        if key == "denied":
+            continue
+        assert result.isError is False, (key, result)
+        assert json.loads(result.content[0].text) == result.structuredContent
+        assert result.structuredContent["status"] == "ok"
+
+
+@then("interfaces expose only data interfaces rather than management state")
+def only_data(c):
+    names = {e["ifname"] for e in c.live["interfaces"].structuredContent["data"]}
+    assert names == {"to-p2", "to-pe1", "to-pe2"}, names
+
+
+@then("an adjacent-router probe returns sent, received, loss and RTT measurements")
+def healthy_probe(c):
+    data = c.live["probe"].structuredContent["data"]
+    assert (
+        data["sent"] == data["received"] == 2
+        and data["loss_percent"] == 0
+        and data["rtt_ms"]["avg"] >= 0
+    )
+
+
+@then(
+    "a customer-endpoint probe without a return route reports measured loss rather than a transport failure"
+)
+def probe_failure(c):
+    result = c.live["loss"]
+    assert result.isError is False
+    data = result.structuredContent["data"]
+    assert (
+        data["sent"] == 2
+        and data["received"] == 0
+        and data["loss_percent"] == 100.0
+        and data["rtt_ms"] is None
+    )
+
+
+@then("an unapproved management destination is denied before SSH execution")
+def denied_probe(c):
+    assert "denied_destination" in c.live["denied"]
+
+
+@when("the official client reads provider adjacencies and a customer's undeclared OSPF")
+def protocol_states(c):
+    async def call():
+        async with streamable_http_client("http://127.0.0.1:19000/mcp") as (read, write, _):
+            async with ClientSession(
+                read, write, read_timeout_seconds=timedelta(seconds=20)
+            ) as client:
+                await client.initialize()
+                return {
+                    key: await client.call_tool(
+                        "get_neighbors", {"node_id": node, "protocol": protocol}
+                    )
+                    for key, node, protocol in [
+                        ("ospf", "p1", "ospf"),
+                        ("bgp", "p1", "bgp"),
+                        ("disabled", "ce1", "ospf"),
+                    ]
+                }
+
+    c.protocols = asyncio.run(call())
+
+
+@then("the provider evidence contains Full neighbors and Established BGP peers")
+def protocol_evidence(c):
+    ospf = c.protocols["ospf"].structuredContent["data"]
+    assert any(
+        "Full" in p["nbrState"] for group in ospf.get("neighbors", ospf).values() for p in group
+    )
+    bgp = c.protocols["bgp"].structuredContent["data"]
+    assert all(p["state"] == "Established" for p in bgp["ipv4Unicast"]["peers"].values())
+
+
+@then("the customer OSPF request reports protocol_not_enabled")
+def protocol_disabled(c):
+    r = c.protocols["disabled"]
+    assert r.isError and r.structuredContent["error_code"] == "protocol_not_enabled", r

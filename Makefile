@@ -10,12 +10,12 @@ install:
 generate:
 	bun scripts/topology.ts
 lint:
-	.venv/bin/ruff check mcp-service/src tests features
-	.venv/bin/ruff format --check mcp-service/src tests features
+	.venv/bin/ruff check mcp-service/src tests features router-image/dispatcher
+	.venv/bin/ruff format --check mcp-service/src tests features router-image/dispatcher
 	.venv/bin/mypy mcp-service/src --explicit-package-bases
 	cd web-ui && bun run lint
 	bun scripts/topology.ts --check
-	$(PYTHON) -m compileall -q mcp-service/src tests
+	$(PYTHON) -m compileall -q mcp-service/src tests router-image/dispatcher
 	cd web-ui && bun run typecheck
 	cd web-ui && bun run scripts/features.ts
 	test -s SPEC.md
@@ -47,7 +47,7 @@ browser: bdd-web
 clean:
 	rm -rf web-ui/dist .pytest_cache .ruff_cache
 format:
-	.venv/bin/ruff format mcp-service/src tests features
+	.venv/bin/ruff format mcp-service/src tests features router-image/dispatcher
 	cd web-ui && bun run format
 bdd: acceptance
 logs-once:

@@ -359,6 +359,7 @@ if (import.meta.main) {
         JSON.stringify(
           {
             node_id: n.id,
+            protocols: n.protocols,
             management_address: n.management_address,
             interfaces: t.links.flatMap((l) =>
               l.endpoints

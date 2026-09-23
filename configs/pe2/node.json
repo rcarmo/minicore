@@ -1,5 +1,9 @@
 {
   "node_id": "pe2",
+  "protocols": [
+    "ospf",
+    "bgp"
+  ],
   "management_address": "172.30.250.14",
   "interfaces": [
     "to-p1",

@@ -34,3 +34,11 @@ Feature: Validate node requests independently of the MCP client
   Scenario: Bound node stdout and stderr independently of the caller
     When a fixed node command exceeds the output cap
     Then it is terminated with output_limit rather than retaining unlimited output
+
+  Scenario: Validate the deployed dispatcher entrypoint before building images
+    When the node dispatcher source is compiled and its denied command entrypoint is invoked
+    Then it produces a bounded JSON denial without a Python traceback
+
+  Scenario: Preserve protocol-disabled state separately from no neighbors
+    When an OSPF query is requested on a node without declared OSPF
+    Then the dispatcher reports protocol_not_enabled without interpreting an empty response as healthy neighbors

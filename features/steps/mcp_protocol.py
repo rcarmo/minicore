@@ -557,3 +557,54 @@ def dispatcher_output(c):
 @then("it is terminated with output_limit rather than retaining unlimited output")
 def dispatcher_capped(c):
     assert c.execution["error_code"] == "output_limit" and len(c.execution["stdout"]) <= 1024
+
+
+@when("the node dispatcher source is compiled and its denied command entrypoint is invoked")
+def compiled_dispatcher(c):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    path = Path("router-image/dispatcher/node_dispatcher.py")
+    c.compiled = subprocess.run(
+        [sys.executable, "-m", "py_compile", str(path)], capture_output=True, text=True
+    )
+    c.denied_entry = subprocess.run(
+        [sys.executable, str(path)],
+        input="{}",
+        env=os.environ | {"SSH_ORIGINAL_COMMAND": "id"},
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+
+
+@then("it produces a bounded JSON denial without a Python traceback")
+def entrypoint_valid(c):
+    assert c.compiled.returncode == 0, c.compiled.stderr
+    assert c.denied_entry.returncode == 0, c.denied_entry.stderr
+    assert json.loads(c.denied_entry.stdout)["status"] == "error"
+    assert "Traceback" not in c.denied_entry.stderr
+
+
+@when("an OSPF query is requested on a node without declared OSPF")
+def disabled_ospf(c):
+    from node_dispatcher import command_for
+
+    try:
+        command_for(
+            {"operation": "get_neighbors", "protocol": "ospf"},
+            {"protocols": ["bgp"], "interfaces": [], "destinations": []},
+        )
+    except ValueError as e:
+        c.disabled_protocol = str(e)
+    else:
+        c.disabled_protocol = None
+
+
+@then(
+    "the dispatcher reports protocol_not_enabled without interpreting an empty response as healthy neighbors"
+)
+def disabled_ospf_result(c):
+    assert c.disabled_protocol == "protocol_not_enabled"

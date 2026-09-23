@@ -1,5 +1,8 @@
 {
   "node_id": "ce2",
+  "protocols": [
+    "bgp"
+  ],
   "management_address": "172.30.250.16",
   "interfaces": [
     "to-pe2",

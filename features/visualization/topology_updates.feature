@@ -1,49 +1,40 @@
-Feature: Keep the customer topology view current
-  As a customer viewing the Minicore network
-  I want the graph to reconcile periodic snapshots with live events
-  So that I see recent observed state without treating a transient stream failure as network failure
+@initial @browser @sse
+Feature: Reconcile periodic snapshots and topology notifications
+  Scenario: Load authoritative expected and observed topology
+    When the customer opens the network view
+    Then the UI fetches a complete versioned topology snapshot
+    And expected nodes and links remain visible without live observations
+    And missing observations are labelled unknown
 
-  Background:
-    Given the declarative inventory defines the expected topology
-    And runtime observations are exposed through a versioned topology API
+  Scenario: Invalidate rather than merge deltas
+    Given a snapshot is displayed
+    When SSE announces a different topology revision
+    Then the UI fetches a fresh complete snapshot
+    And it does not patch unverified deltas into the graph
+    And camera, selected node identity and unchanged positions are preserved
 
-  Scenario: Load the initial topology
-    When the customer opens the topology view
-    Then the UI requests a complete topology snapshot
-    And it renders expected nodes and links
-    And it overlays available runtime observations
-    And it displays the observation collection time and freshness
+  Scenario: Poll even while events are connected
+    Given the topology event stream is connected
+    When 15 seconds elapse
+    Then the UI fetches a complete snapshot
+    And the latest fetch status is displayed separately from observation freshness
 
-  Scenario: Receive an ordered topology event
-    Given the UI has loaded topology revision 12
-    And the SSE stream is connected from revision 12
-    When the server emits a valid event producing revision 13
-    Then the UI applies the factual state change
-    And unchanged nodes retain stable positions
-    And the UI records revision 13 as current
+  Scenario: Recover without event replay
+    Given the SSE connection is interrupted
+    When the connection reopens
+    Then the server sends a topology.snapshot invalidation
+    And the client fetches authoritative state even if it has an old event ID
+    And polling continues during reconnect
+    And collection failure does not imply link failure
 
-  Scenario: Reconcile state periodically
-    Given the SSE stream is connected
-    When the polling interval elapses
-    Then the UI requests a complete topology snapshot
-    And the snapshot remains authoritative over locally accumulated events
+  Scenario: Bound event consumers
+    Given the service has 16 active topology streams
+    When another client requests a stream
+    Then it receives a stream_limit error
+    And a disconnected or expired stream releases its slot
 
-  Scenario: Recover from an interrupted event stream
-    Given the UI has a previously loaded snapshot
-    When the SSE connection is interrupted
-    Then the existing graph remains visible
-    And the UI identifies live updates as disconnected
-    And the UI reconnects with bounded backoff
-    And periodic snapshot polling continues
-
-  Scenario: Detect an unrecoverable revision gap
-    Given the UI cannot apply the next event in order
-    When the event revision cannot be reconciled
-    Then the UI requests a complete topology snapshot
-    And it does not infer that any node or link is unhealthy
-
-  Scenario: Keep diagnosis outside Minicore
-    When a node or link changes observed state
-    Then the UI displays the observed state
-    And it labels only measured network state
-    And it does not display operator fault ground truth
+  Scenario: Keep slow browser requests from overwriting newer state
+    Given a topology fetch is already in flight
+    When a second refresh is requested
+    Then the second request is coalesced behind the first
+    And a disposed view ignores or cancels outstanding requests

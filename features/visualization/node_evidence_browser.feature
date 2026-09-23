@@ -1,3 +1,4 @@
+@planned @browser
 Feature: Browse bounded evidence for a selected network node
   As a customer viewing the Minicore topology
   I want to inspect a node's factual state and logs

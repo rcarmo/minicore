@@ -1,3 +1,4 @@
+@planned @audit
 @security @audit
 Feature: Audit MCP capability decisions and fault mutations
   As the lab owner

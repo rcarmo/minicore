@@ -1,0 +1,272 @@
+:root {
+  font-family:
+    "Segoe UI",
+    Aptos,
+    Calibri,
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  color-scheme: dark;
+  --bg: #0b1218;
+  --surface: #111c25;
+  --surface2: #172630;
+  --line: #334653;
+  --text: #e8eef2;
+  --muted: #9caeb9;
+  --accent: #5fc0bf;
+  --warn: #e0a340;
+  --danger: #e36b63;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+main {
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+header strong {
+  letter-spacing: 0.14em;
+  margin-right: 12px;
+}
+header span,
+footer,
+.notice {
+  color: var(--muted);
+}
+header dl {
+  display: flex;
+  gap: 8px 18px;
+  margin: 0;
+  align-items: baseline;
+}
+dt {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+dd {
+  margin: 0;
+}
+header dd[data-state="connected"] {
+  color: var(--accent);
+}
+header dd[data-state="reconnecting"] {
+  color: var(--warn);
+}
+.workspace {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+}
+.graph {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+}
+.graph canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+.graph-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border: 0;
+  background: rgba(11, 18, 24, 0.86);
+  color: var(--text);
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  font: 600 12px inherit;
+}
+.graph-label:focus-visible {
+  outline: 2px solid var(--accent);
+}
+.legend {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  background: rgba(11, 18, 24, 0.88);
+  padding: 6px 8px;
+}
+.error {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #3a2020;
+  border: 1px solid var(--danger);
+  padding: 10px;
+}
+.error a {
+  color: var(--text);
+}
+aside {
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+  padding: 18px;
+  overflow: auto;
+}
+aside h2 {
+  margin: 0 0 4px;
+  font-size: 1.35rem;
+}
+.role {
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+aside dl {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 8px;
+  margin: 22px 0;
+}
+aside nav {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+}
+button {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  padding: 7px 8px;
+}
+button:disabled {
+  color: #61717b;
+}
+.notice {
+  line-height: 1.45;
+}
+footer {
+  padding: 6px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 800px) {
+  header {
+    align-items: flex-start;
+  }
+  header dl {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 3px 10px;
+  }
+  .workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(300px, 60vh) auto;
+  }
+  aside {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+  header span {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto !important;
+  }
+}
+.graph-heading {
+  position: absolute;
+  left: 20px;
+  top: 20px;
+  pointer-events: none;
+}
+.graph-heading p {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 4px 0;
+}
+.graph-tools {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+}
+.graph-label[data-selected="true"] {
+  outline: 2px solid var(--accent);
+}
+aside li {
+  font-size: 0.85rem;
+  margin: 8px 0;
+}
+aside ul {
+  padding-left: 20px;
+}
+aside h3 {
+  font-size: 0.85rem;
+  margin-top: 24px;
+}
+aside details {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  margin-top: 16px;
+}
+aside summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.node-list {
+  list-style: none;
+  padding-left: 0 !important;
+}
+.node-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.node-list button {
+  min-width: 64px;
+}
+button[aria-pressed="true"] {
+  border-color: var(--accent);
+}
+button,
+summary,
+a {
+  outline-offset: 3px;
+}
+.graph-label {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+.error {
+  max-width: 90%;
+  width: 500px;
+  top: 80px;
+  font-size: 0.9rem;
+}
+small {
+  color: var(--muted);
+}

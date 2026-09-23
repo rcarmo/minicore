@@ -14,3 +14,11 @@ dist/
 evidence/
 logs/
 .DS_Store
+node_modules/
+*.log
+runtime/
+secrets/
+web-ui/test-results/
+web-ui/playwright-report/
+web-ui/.features-gen/
+.mypy_cache/

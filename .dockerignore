@@ -1,0 +1,16 @@
+**
+!vendor/
+!vendor/umcp/
+!vendor/umcp/*.py
+!vendor/umcp/LICENSE
+!mcp-service/
+!mcp-service/src/
+!mcp-service/src/**
+!inventory/
+!inventory/topology.json
+!web-ui/
+!web-ui/dist/
+!web-ui/dist/index.html
+!web-ui/dist/main.js
+!web-ui/dist/styles.css
+!web-ui/dist/LICENSE-*.txt

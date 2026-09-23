@@ -1,0 +1,1 @@
+"""Minicore management service."""

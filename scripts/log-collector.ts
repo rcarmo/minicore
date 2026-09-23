@@ -307,6 +307,12 @@ async function collect(
 
 export async function main(args = process.argv.slice(2)) {
   const t = await loadTopology();
+  const genFile = Bun.file(join(root, "runtime/control/generation.json"));
+  if (await genFile.exists()) {
+    const g = await genFile.json();
+    if (Number.isInteger(g.generation) && g.generation >= t.generation)
+      t.generation = g.generation;
+  }
   let once = false,
     duration = 600,
     node: string | undefined;
@@ -352,6 +358,11 @@ export async function main(args = process.argv.slice(2)) {
       `Collecting bounded node logs${node ? ` for ${node}` : ""}; Ctrl-C stops; expires after ${duration}s`,
     );
     do {
+      if (await genFile.exists()) {
+        const g = await genFile.json();
+        if (Number.isInteger(g.generation) && g.generation >= t.generation)
+          t.generation = g.generation;
+      }
       await collect(
         t,
         node ? t.nodes.filter((n) => n.id === node) : t.nodes,

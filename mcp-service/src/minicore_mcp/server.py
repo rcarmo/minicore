@@ -14,6 +14,7 @@ from umcp_shared import MCPHTTPResponse, get_request_context
 
 from .activity import Activity
 from .configuration import baseline
+from .faults import FaultController
 from .logs import LogStore
 from .model import Topology
 from .policy import GOD, OPERATOR, Policy
@@ -73,7 +74,7 @@ class Server(AsyncMCPServer):
         self.topology, self.policy, self.assets = topology, policy, assets
         self.config_root = assets.parent.parent / "configs"
         self.adapter: SSHAdapter | None = None
-        self.controller = None
+        self.controller: FaultController | None = None
         self.activity = Activity()
         self.streams = 0
         self.log_store = LogStore(topology, policy.credentials.values())
@@ -270,7 +271,26 @@ class Server(AsyncMCPServer):
                     "runtime_backend": "not_configured",
                 }
             elif name == "list_fault_scenarios":
-                data = {"scenarios": [{"id": s, "available": False} for s in SCENARIOS]}
+                data = {
+                    "scenarios": [
+                        {"id": s, "available": self.controller is not None} for s in SCENARIOS
+                    ]
+                }
+            elif (
+                name in {"get_fault_state", "apply_fault", "reset_lab"}
+                and self.controller is not None
+            ):
+                if name == "get_fault_state":
+                    data = self.controller.get_state()
+                else:
+                    response = (
+                        await self.controller.apply(
+                            args["scenario_id"], args["idempotency_key"], p.name
+                        )
+                        if name == "apply_fault"
+                        else await self.controller.reset(args["idempotency_key"], p.name)
+                    )
+                    data, error = response["data"], response["error_code"]
             elif (
                 name in {"get_routes", "get_interfaces", "get_neighbors", "ping"}
                 and self.adapter is not None

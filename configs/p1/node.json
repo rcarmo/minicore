@@ -4,6 +4,11 @@
     "ospf",
     "bgp"
   ],
+  "source_addresses": {
+    "to-p2": "10.200.1.2",
+    "to-pe1": "10.200.2.3",
+    "to-pe2": "10.200.4.3"
+  },
   "management_address": "172.30.250.11",
   "interfaces": [
     "to-p2",

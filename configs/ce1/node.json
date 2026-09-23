@@ -3,6 +3,10 @@
   "protocols": [
     "bgp"
   ],
+  "source_addresses": {
+    "to-pe1": "10.200.6.2",
+    "to-host1": "10.200.8.3"
+  },
   "management_address": "172.30.250.15",
   "interfaces": [
     "to-pe1",

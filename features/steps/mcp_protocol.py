@@ -837,3 +837,62 @@ def activity_expire(c):
 @then("the snapshot stays bounded and abandoned active records disappear")
 def activity_bound(c):
     assert len(c.bounded["active"]) <= 128 and c.expired["active"] == []
+
+
+@when('the node fault dispatcher receives "{request}"')
+def denied_fault(c, request):
+    from fault_dispatcher import compile_request
+
+    payload = {"operation": "fault", "scenario": "core-link-failure", "action": "apply"}
+    node = "p1"
+    if request == "arbitrary command":
+        payload["command"] = "id"
+    elif request == "unknown scenario":
+        payload["scenario"] = "whatever"
+    elif request == "wrong node":
+        node = "ce1"
+    elif request == "extra interface":
+        payload["interface"] = "mgmt0"
+    elif request == "invalid action":
+        payload["action"] = "shell"
+    try:
+        compile_request(payload, node)
+    except ValueError:
+        c.fault_denied = True
+    else:
+        c.fault_denied = False
+
+
+@then("the fault request is rejected without running a command")
+def rejected_fault(c):
+    assert c.fault_denied
+
+
+@when("the node fault dispatcher compiles the three approved scenarios")
+def fixed_faults(c):
+    from fault_dispatcher import compile_request
+
+    c.fault_args = [
+        compile_request({"operation": "fault", "scenario": s, "action": "apply"}, node)
+        for s, node in [
+            ("core-link-failure", "p1"),
+            ("customer-bgp-failure", "ce1"),
+            ("data-path-degradation", "ce1"),
+        ]
+    ]
+
+
+@then("commands address only p1 to-p2, ce1 to-pe1 and ce1 to-host1")
+def fixed_fault_targets(c):
+    assert all(
+        iface in cmd
+        for iface, cmd in zip(["to-p2", "to-pe1", "to-host1"], c.fault_args, strict=False)
+    )
+
+
+@then("no caller argument selects a management interface or executable")
+def fixed_fault_executables(c):
+    assert {cmd[0] for cmd in c.fault_args} == {
+        "/sbin/ip",
+        "/sbin/tc",
+    } and "mgmt0" not in json.dumps(c.fault_args)

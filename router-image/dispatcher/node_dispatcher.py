@@ -17,7 +17,7 @@ ALLOWED = {
     "get_routes": {"operation", "prefix"},
     "get_interfaces": {"operation", "interface"},
     "get_neighbors": {"operation", "protocol"},
-    "ping": {"operation", "destination", "count"},
+    "ping": {"operation", "destination", "count", "source_interface"},
 }
 
 
@@ -74,7 +74,14 @@ def command_for(request, inventory):
             raise ValueError("denied_destination")
         if type(count) is not int or not 1 <= count <= 5:
             raise ValueError("invalid_count")
-        return ["/bin/ping", "-n", "-c", str(count), "-W", "1", destination]
+        source = request.get("source_interface")
+        if source is not None and source not in inventory["interfaces"]:
+            raise ValueError("unknown_interface")
+        return (
+            ["/bin/ping", "-n", "-c", str(count), "-W", "1"]
+            + (["-I", inventory["source_addresses"][source]] if source else [])
+            + [destination]
+        )
     raise ValueError("denied_operation")
 
 

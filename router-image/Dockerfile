@@ -33,3 +33,5 @@ COPY router-image/sshd_config /etc/ssh/sshd_config
 COPY router-image/start-node /usr/local/bin/start-node
 RUN chmod 755 /usr/local/bin/minicore-dispatch /usr/local/bin/start-node
 CMD ["/usr/local/bin/start-node"]
+COPY router-image/dispatcher/fault_dispatcher.py /usr/local/bin/minicore-fault
+RUN chmod 755 /usr/local/bin/minicore-fault

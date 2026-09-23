@@ -9,9 +9,11 @@ from pathlib import Path
 
 
 class SSHAdapter:
-    def __init__(self, topology, directory: Path):
+    def __init__(self, topology, directory: Path, *, fault=False):
         self.topology = topology
-        self.key = directory / "diagnostic"
+        self.key = directory / ("fault" if fault else "diagnostic")
+        self.identity = "root" if fault else "diagnostic"
+        self.command = "minicore-fault" if fault else "minicore-dispatch"
         self.known_hosts = directory / "known_hosts"
         self.global_slots = asyncio.Semaphore(8)
         self.node_slots = {n: asyncio.Semaphore(2) for n in topology.nodes}
@@ -76,8 +78,8 @@ class SSHAdapter:
                         "RequestTTY=no",
                         "-o",
                         "LogLevel=ERROR",
-                        "diagnostic@" + info["management_address"],
-                        "minicore-dispatch",
+                        self.identity + "@" + info["management_address"],
+                        self.command,
                     ]
                     proc = await asyncio.create_subprocess_exec(
                         *argv,
@@ -127,6 +129,7 @@ class SSHAdapter:
                                 "invalid_protocol",
                                 "denied_destination",
                                 "invalid_count",
+                                "mutation_failed",
                                 "node_unavailable",
                                 "command_failed",
                                 "parse_failure",

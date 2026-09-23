@@ -148,6 +148,8 @@ export function compose(t: Topology) {
       MINICORE_TOKEN_FILE: "/run/secrets/mcp-tokens.json",
       MINICORE_OBSERVATIONS: "/runtime/observations.json",
       MINICORE_SSH_DIR: "/run/ssh-client",
+      MINICORE_FAULT_DIR: "/run/fault-client",
+      MINICORE_CONTROL_DIR: "/control",
       MINICORE_ALLOWED_ORIGINS:
         "${MINICORE_ALLOWED_ORIGINS:-http://127.0.0.1:19000}",
     },
@@ -158,6 +160,8 @@ export function compose(t: Topology) {
       "../runtime:/runtime:ro",
       "../secrets/http:/run/secrets:ro",
       "../secrets/ssh/client:/run/ssh-client:ro",
+      "../secrets/ssh/fault-client:/run/fault-client:ro",
+      "../runtime/control:/control:rw",
     ],
     networks: {
       ingress: { interface_name: "ingress0", gw_priority: 1 },
@@ -360,6 +364,13 @@ if (import.meta.main) {
           {
             node_id: n.id,
             protocols: n.protocols,
+            source_addresses: Object.fromEntries(
+              t.links.flatMap((l) =>
+                l.endpoints
+                  .filter((e) => e.node === n.id)
+                  .map((e) => [e.interface, e.address.split("/")[0]]),
+              ),
+            ),
             management_address: n.management_address,
             interfaces: t.links.flatMap((l) =>
               l.endpoints

@@ -1,11 +1,10 @@
 Port 22
 HostKey /run/minicore-ssh/ssh_host_ed25519_key
 PidFile /run/sshd.pid
-AuthorizedKeysFile /run/minicore-ssh/authorized_keys
 PasswordAuthentication no
 KbdInteractiveAuthentication no
-PermitRootLogin no
-AllowUsers diagnostic
+PermitRootLogin forced-commands-only
+AllowUsers diagnostic root
 PubkeyAuthentication yes
 AuthenticationMethods publickey
 PermitTTY no
@@ -15,5 +14,10 @@ AllowTcpForwarding no
 X11Forwarding no
 PermitUserEnvironment no
 StrictModes yes
-ForceCommand /usr/local/bin/minicore-dispatch
 LogLevel ERROR
+Match User diagnostic
+    AuthorizedKeysFile /run/minicore-ssh/authorized_keys
+    ForceCommand /usr/local/bin/minicore-dispatch
+Match User root
+    AuthorizedKeysFile /run/minicore-ssh/fault_authorized_keys
+    ForceCommand /usr/local/bin/minicore-fault

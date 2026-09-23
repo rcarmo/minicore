@@ -43,6 +43,21 @@ for (const node of t.nodes.filter((n) => n.kind === "router")) {
     { stderr: "inherit" },
   );
   if (await authMode.exited) throw Error("Authorized key permissions failed");
+  const faultPub = (await Bun.file(join(base, "fault.pub")).text()).trim();
+  const faultWrite = Bun.spawn(
+    ["sudo", "tee", join(dir, "fault_authorized_keys")],
+    { stdin: "pipe", stdout: "ignore", stderr: "inherit" },
+  );
+  faultWrite.stdin.write(
+    `restrict,command="/usr/local/bin/minicore-fault" ${faultPub}\n`,
+  );
+  faultWrite.stdin.end();
+  if (await faultWrite.exited) throw Error("Fault policy write failed");
+  const faultMode = Bun.spawn(
+    ["sudo", "chmod", "644", join(dir, "fault_authorized_keys")],
+    { stderr: "inherit" },
+  );
+  if (await faultMode.exited) throw Error("Fault policy permissions failed");
   const host = (await Bun.file(join(dir, "ssh_host_ed25519_key.pub")).text())
     .trim()
     .split(" ")
@@ -91,6 +106,24 @@ const mode = Bun.spawn(["sudo", "chmod", "644", join(client, "known_hosts")], {
 });
 if (await mode.exited) throw Error("Known hosts permissions failed");
 await chmod(join(base, "fault"), 0o600);
+const faultClient = join(base, "fault-client");
+await mkdir(faultClient, { recursive: true });
+for (const [src, dest, perm] of [
+  [join(base, "fault"), join(faultClient, "fault"), "600"],
+  [join(client, "known_hosts"), join(faultClient, "known_hosts"), "644"],
+]) {
+  const p = Bun.spawn(
+    ["sudo", "install", "-o", "10001", "-g", "10001", "-m", perm, src, dest],
+    { stderr: "inherit" },
+  );
+  if (await p.exited) throw Error("Fault client install failed");
+}
+const control = join(root, "runtime/control");
+await mkdir(control, { recursive: true });
+const own = Bun.spawn(["sudo", "chown", "10001:10001", control], {
+  stderr: "inherit",
+});
+if (await own.exited) throw Error("Control state ownership failed");
 console.log(
-  "Provisioned pinned node host keys and diagnostic client identity; separate fault identity is NOT authorised or mounted yet.",
+  "Provisioned separate pinned diagnostic and forced-only fault identities; private values were not printed.",
 );

@@ -3,6 +3,8 @@ import logging
 import os
 from pathlib import Path
 
+from .fault_executor import FaultExecutor
+from .faults import FaultController
 from .model import Topology
 from .policy import Policy
 from .server import Server
@@ -23,6 +25,12 @@ def main():
     server = Server(topology, policy, root / "web-ui/dist")
     if os.environ.get("MINICORE_SSH_DIR"):
         server.adapter = SSHAdapter(topology, Path(os.environ["MINICORE_SSH_DIR"]))
+    if os.environ.get("MINICORE_FAULT_DIR") and server.adapter:
+        server.controller = FaultController(
+            topology,
+            FaultExecutor(topology, server.adapter, Path(os.environ["MINICORE_FAULT_DIR"])),
+            Path(os.environ.get("MINICORE_CONTROL_DIR", "/control")),
+        )
     if policy.profile == "private":
         logging.warning(
             "Private lab profile: reachable anonymous callers have Operator access; no individual identity."

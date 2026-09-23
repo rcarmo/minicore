@@ -81,3 +81,5 @@ ssh-provision:
 	bun scripts/provision-ssh.ts
 live-routes:
 	.venv/bin/behave features/diagnostics/live_routes.feature
+live-faults:
+	.venv/bin/behave features/operations/live_faults.feature

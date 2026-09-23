@@ -3,6 +3,12 @@ import { join } from "node:path";
 import { rename } from "node:fs/promises";
 import { loadTopology, root } from "./topology";
 const t = await loadTopology();
+const genFile = Bun.file(join(root, "runtime/control/generation.json"));
+if (await genFile.exists()) {
+  const g = await genFile.json();
+  if (Number.isInteger(g.generation) && g.generation >= t.generation)
+    t.generation = g.generation;
+}
 const [action = "status", node] = process.argv.slice(2);
 const allowed = ["up", "stop", "start", "restart", "status", "observe"];
 if (!allowed.includes(action))

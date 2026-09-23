@@ -42,3 +42,19 @@ Feature: Validate node requests independently of the MCP client
   Scenario: Preserve protocol-disabled state separately from no neighbors
     When an OSPF query is requested on a node without declared OSPF
     Then the dispatcher reports protocol_not_enabled without interpreting an empty response as healthy neighbors
+
+  Scenario Outline: Reject unsafe fault execution independently of MCP
+    When the node fault dispatcher receives "<request>"
+    Then the fault request is rejected without running a command
+    Examples:
+      | request           |
+      | arbitrary command |
+      | unknown scenario  |
+      | wrong node        |
+      | extra interface   |
+      | invalid action    |
+
+  Scenario: Restrict fault requests to fixed data interfaces
+    When the node fault dispatcher compiles the three approved scenarios
+    Then commands address only p1 to-p2, ce1 to-pe1 and ce1 to-host1
+    And no caller argument selects a management interface or executable

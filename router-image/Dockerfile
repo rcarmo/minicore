@@ -23,7 +23,7 @@ COPY router-image/node-health /usr/local/bin/node-health
 RUN chmod 755 /usr/local/bin/node-health \
  && printf 'service integrated-vtysh-config\n' > /etc/frr/vtysh.conf
 
-RUN apk add --no-cache openssh-server openssh-keygen \
+RUN apk add --no-cache openssh-server openssh-keygen iptables \
  && adduser -D -u 11001 -s /bin/sh diagnostic \
  && addgroup diagnostic frrvty \
  && passwd -u diagnostic \

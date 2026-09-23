@@ -83,3 +83,5 @@ live-routes:
 	.venv/bin/behave features/diagnostics/live_routes.feature
 live-faults:
 	.venv/bin/behave features/operations/live_faults.feature
+live-isolation:
+	PYTHONPATH=vendor/umcp:mcp-service/src:tests:router-image/dispatcher .venv/bin/behave features/operations/live_isolation.feature

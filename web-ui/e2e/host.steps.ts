@@ -453,3 +453,48 @@ Then(
     );
   },
 );
+
+Then(
+  "generated data bridges have no host gateway or masquerading",
+  async () => {
+    const compose = JSON.parse(
+      await readFile(join(root, "compose/compose.json"), "utf8"),
+    );
+    const inventory = JSON.parse(
+      await readFile(join(root, "inventory/topology.json"), "utf8"),
+    );
+    for (const link of inventory.links) {
+      const network = compose.networks[link.network];
+      expect(network.internal).toBe(true);
+      expect(
+        network.driver_opts["com.docker.network.bridge.gateway_mode_ipv4"],
+      ).toBe("isolated");
+      expect(
+        network.driver_opts["com.docker.network.bridge.enable_ip_masquerade"],
+      ).toBe("false");
+    }
+  },
+);
+Then(
+  "router startup blocks management forwarding before starting daemons",
+  async () => {
+    const script = await readFile(
+      join(root, "router-image/start-node"),
+      "utf8",
+    );
+    expect(script).toContain("set -eu");
+    for (const rule of [
+      "iptables -I FORWARD 1 -i mgmt0 -j DROP",
+      "iptables -I FORWARD 1 -o mgmt0 -j DROP",
+      'iptables -I INPUT 1 ! -i mgmt0 -d "$mgmt" -j DROP',
+    ]) {
+      expect(script).toContain(rule);
+      expect(script.indexOf(rule)).toBeLessThan(
+        script.indexOf("/usr/sbin/sshd"),
+      );
+      expect(script.indexOf(rule)).toBeLessThan(
+        script.indexOf("exec /usr/lib/frr/docker-start"),
+      );
+    }
+  },
+);

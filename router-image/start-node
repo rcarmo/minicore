@@ -2,5 +2,11 @@
 set -eu
 # Bind only the known management address; never SSH on the simulated data links.
 mgmt=$(python3 -c 'import json;print(json.load(open("/etc/minicore/node.json"))["management_address"])')
+# Management is transport only, never a simulated forwarding path. Fail closed
+# before SSH/FRR start if filtering cannot be installed in this namespace.
+iptables -I FORWARD 1 -i mgmt0 -j DROP
+iptables -I FORWARD 1 -o mgmt0 -j DROP
+iptables -I INPUT 1 ! -i mgmt0 -d "$mgmt" -j DROP
+iptables -I INPUT 1 ! -i mgmt0 -p tcp --dport 22 -j DROP
 /usr/sbin/sshd -f /etc/ssh/sshd_config -o "ListenAddress=$mgmt"
 exec /usr/lib/frr/docker-start

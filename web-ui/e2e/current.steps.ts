@@ -343,6 +343,8 @@ Then(
     await expect(
       page.getByRole("heading", { name: "P1", exact: true }),
     ).toBeVisible();
+    // Drain SSE-triggered mock fetches before closing their page.
+    await page.unrouteAll({ behavior: "wait" });
   },
 );
 Then(

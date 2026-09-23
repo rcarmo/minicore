@@ -230,7 +230,13 @@ export function compose(t: Topology) {
             "FOWNER",
           ],
       security_opt: ["no-new-privileges:true"],
-      sysctls: { "net.ipv4.ip_forward": endpoint ? "0" : "1" },
+      sysctls: {
+        "net.ipv4.ip_forward": endpoint ? "0" : "1",
+        "net.ipv4.conf.all.send_redirects": "0",
+        "net.ipv4.conf.default.send_redirects": "0",
+        "net.ipv4.conf.all.accept_redirects": "0",
+        "net.ipv4.conf.default.accept_redirects": "0",
+      },
       networks: attached,
       mem_limit: "192m",
       pids_limit: 64,
@@ -268,6 +274,10 @@ export function compose(t: Topology) {
     networks[l.network] = {
       internal: true,
       driver: "bridge",
+      driver_opts: {
+        "com.docker.network.bridge.gateway_mode_ipv4": "isolated",
+        "com.docker.network.bridge.enable_ip_masquerade": "false",
+      },
       ipam: { config: [{ subnet: l.subnet, gateway: l.bridge_gateway }] },
     };
   return { name: "minicore", services, networks };

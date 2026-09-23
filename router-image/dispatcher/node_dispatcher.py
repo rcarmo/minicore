@@ -179,6 +179,8 @@ def normalise(operation, output):
         r"(\d+) packets transmitted, (\d+) (?:packets )?received, ([\d.]+)% packet loss", output
     )
     if not match:
+        if "Network unreachable" in output:
+            raise ValueError("network_unreachable")
         raise ValueError("parse_failure")
     sent, received, loss = int(match[1]), int(match[2]), float(match[3])
     if (
@@ -337,12 +339,16 @@ def main():
         data = None
         if not error:
             try:
+                if request["operation"] == "ping":
+                    execution["stdout"] += execution["stderr"]
                 data = normalise(request["operation"], execution["stdout"])
                 if request["operation"] == "get_interfaces":
                     data = [item for item in data if item.get("ifname") in inventory["interfaces"]]
                     execution["stdout"] = json.dumps(data)
-            except (ValueError, TypeError):
-                error = "parse_failure"
+            except (ValueError, TypeError) as exc:
+                error = (
+                    "network_unreachable" if str(exc) == "network_unreachable" else "parse_failure"
+                )
         result.update(
             status="error" if error else "ok",
             error_code=error,

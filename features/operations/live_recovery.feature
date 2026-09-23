@@ -31,3 +31,7 @@ Feature: Recover actual fixed faults after process interruption
     When the real fault key attempts shell configuration wrong-node unknown-scenario PTY and forwarding requests
     Then every escape is rejected without a mutation or configuration write
     And Operator evidence cannot disclose HTTP tokens or SSH private keys
+
+  Scenario: A missing route produces a typed probe failure through real MCP
+    When a customer fault removes CE1 reachability and Operator probes the far endpoint
+    Then the probe reports network_unreachable without fabricated packet counts and reset recovers

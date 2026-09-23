@@ -1000,3 +1000,23 @@ def denied_record(c):
     )
     assert all(t not in content for t in c.audit_wire.tokens.values())
     assert not any(r.get("event") == "tool_completed" for r in rows)
+
+
+@when("ping exits with a network unreachable diagnostic and no packet summary")
+def no_route_ping(c):
+    from node_dispatcher import normalise
+
+    try:
+        c.no_route_data = normalise(
+            "ping",
+            "PING 10.200.9.2 (10.200.9.2): 56 data bytes\nping: sendto: Network unreachable\n",
+        )
+        c.no_route_code = None
+    except ValueError as exc:
+        c.no_route_data = None
+        c.no_route_code = str(exc)
+
+
+@then("the node reports network_unreachable with no invented counts")
+def no_route_classified(c):
+    assert c.no_route_code == "network_unreachable" and c.no_route_data is None

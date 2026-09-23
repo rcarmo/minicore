@@ -82,3 +82,7 @@ Feature: Validate node requests independently of the MCP client
       | get_interfaces | [{"ifname":"to-p1","flags":[],"operstate":"DOWN"}]         |
       | get_neighbors  | {}                                                                  |
       | get_neighbors  | {"ipv4Unicast":{"peers":{"10.254.0.2":{"state":"Idle"}}}} |
+
+  Scenario: Preserve a no-route probe as unavailable rather than fabricated packet loss
+    When ping exits with a network unreachable diagnostic and no packet summary
+    Then the node reports network_unreachable with no invented counts

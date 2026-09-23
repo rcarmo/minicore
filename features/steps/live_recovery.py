@@ -410,3 +410,39 @@ def secret_boundary(c):
     value = "\n".join(bodies)
     assert all(token not in value for token in tokens.values())
     assert "PRIVATE KEY" not in value
+
+
+@when("a customer fault removes CE1 reachability and Operator probes the far endpoint")
+def live_no_route(c):
+    try:
+        applied = god(
+            "apply_fault", {"scenario_id": "customer-bgp-failure", "idempotency_key": str(uuid4())}
+        )
+        assert not applied.isError, applied
+        result = subprocess.run(
+            [
+                str(ROOT / ".venv/bin/python"),
+                str(ROOT / "tests/mcp_harness/tool_cli.py"),
+                "operator",
+                "ping",
+                json.dumps({"node_id": "ce1", "destination": "10.200.9.2", "count": 2}),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, result.stderr
+        c.no_route_result = json.loads(result.stdout)
+    finally:
+        reset = god("reset_lab", {"idempotency_key": str(uuid4())})
+        assert not reset.isError, reset
+
+
+@then("the probe reports network_unreachable without fabricated packet counts and reset recovers")
+def live_no_route_assert(c):
+    result = c.no_route_result
+    assert (
+        result["isError"]
+        and result["evidence"]["error_code"] == "network_unreachable"
+        and result["evidence"]["data"] is None
+    ), result

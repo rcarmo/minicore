@@ -125,6 +125,7 @@ class SSHAdapter:
                                 "invalid_arguments",
                                 "denied_operation",
                                 "protocol_not_enabled",
+                                "network_unreachable",
                                 "unknown_interface",
                                 "invalid_protocol",
                                 "denied_destination",

@@ -896,3 +896,37 @@ def fixed_fault_executables(c):
         "/sbin/ip",
         "/sbin/tc",
     } and "mgmt0" not in json.dumps(c.fault_args)
+
+
+@when("a God MCP event stream is open and the credential file is atomically replaced")
+def rotate_live_stream(c):
+    import os
+
+    w = c.revocation_wire = wire(c)
+    session, _ = w.initialize(role="god")
+    response, conn = w.stream(session, role="god")
+    assert response.status == 200
+    assert response.readline().startswith(b": connected")
+    assert response.readline() == b"\n"
+    path = w.path / "replacement.json"
+    path.write_text(json.dumps({"operator": "o" * 40, "god": "z" * 40}))
+    os.replace(path, w.path / "tokens.json")
+    c.old_stream_chunk = response.readline()
+    response.close()
+    conn.close()
+    c.old_stream_session = session
+
+
+@then("the old stream reaches EOF before sending another event and cannot reopen")
+def stream_rotation_eof(c):
+    assert c.old_stream_chunk == b"", c.old_stream_chunk
+    assert (
+        c.revocation_wire.request("GET", "/mcp", role="god", session=c.old_stream_session)[0] == 401
+    )
+
+
+@then("the replacement God credential can initialize a fresh session")
+def replacement_session(c):
+    c.revocation_wire.tokens["god"] = "z" * 40
+    session, version = c.revocation_wire.initialize(role="god")
+    assert session and version == "2025-03-26"

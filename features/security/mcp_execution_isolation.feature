@@ -46,3 +46,8 @@ Feature: Isolate MCP execution and cancellation between callers
   Scenario: Reject wrong-typed identities without an authorization-hook exception
     When a client sends a non-string tool name or method
     Then it receives a validation or authorization failure without HTTP 500
+
+  Scenario: Credential rotation ends an existing MCP event stream without a restart
+    When a God MCP event stream is open and the credential file is atomically replaced
+    Then the old stream reaches EOF before sending another event and cannot reopen
+    And the replacement God credential can initialize a fresh session

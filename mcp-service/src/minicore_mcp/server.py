@@ -81,6 +81,7 @@ class Server(AsyncMCPServer):
         self.activity = Activity()
         self.streams = 0
         self.log_store = LogStore(topology, policy.credentials.values())
+        self.log_store.secrets = policy.credentials.values()
         super().__init__()
         self.streamable_http_max_sessions = 64
         self.streamable_http_request_timeout_seconds = 10
@@ -385,13 +386,18 @@ class Server(AsyncMCPServer):
                 }
         return snapshot
 
-    async def events(self, view="agent"):
+    def stream_authorized(self, headers, principal):
+        return headers is None or self.policy.authenticate(headers) == principal
+
+    async def events(self, view="agent", headers=None, principal=None):
         previous = None
         self.streams += 1
         try:
             for _ in range(
                 60
             ):  # Re-authorize at least every minute; bounded per-connection lifetime.
+                if not self.stream_authorized(headers, principal):
+                    return
                 s = self.project_topology(view)
                 # Controller changes also invalidate the authorised God view.
                 revision = json.dumps([s["revision"], s.get("controller")], sort_keys=True)
@@ -405,11 +411,13 @@ class Server(AsyncMCPServer):
         finally:
             self.streams -= 1
 
-    async def log_events(self, node):
+    async def log_events(self, node, headers=None, principal=None):
         previous = None
         self.streams += 1
         try:
             for _ in range(30):
+                if not self.stream_authorized(headers, principal):
+                    return
                 page = self.log_store.page(node, limit=1)
                 state = (page["data"]["revision"], page["error_code"], page["generation"])
                 if state != previous:
@@ -429,11 +437,13 @@ class Server(AsyncMCPServer):
         finally:
             self.streams -= 1
 
-    async def activity_events(self):
+    async def activity_events(self, headers=None, principal=None):
         self.streams += 1
         try:
             async with asyncio.timeout(60):
                 while True:
+                    if not self.stream_authorized(headers, principal):
+                        return
                     event = self.activity.changed
                     data = self.activity.snapshot(self.topology.inventory["generation"])
                     yield f"event: activity.snapshot\ndata: {json.dumps(data)}\n\n".encode()
@@ -484,7 +494,7 @@ class Server(AsyncMCPServer):
                 200,
                 content_type="text/event-stream",
                 headers=(("Cache-Control", "no-store"), ("X-Accel-Buffering", "no")),
-                stream=self.events(view),
+                stream=self.events(view, headers, p),
             )
         if path == "/api/v1/view" and not target.query:
             return self.response(
@@ -529,7 +539,7 @@ class Server(AsyncMCPServer):
                     200,
                     content_type="text/event-stream",
                     headers=(("Cache-Control", "no-store"), ("X-Accel-Buffering", "no")),
-                    stream=self.log_events(node),
+                    stream=self.log_events(node, headers, p),
                 )
             return self.response(200 if result["status"] == "ok" else 503, result)
         if path == "/api/v1/routing":
@@ -591,7 +601,7 @@ class Server(AsyncMCPServer):
                 200,
                 content_type="text/event-stream",
                 headers=(("Cache-Control", "no-store"), ("X-Accel-Buffering", "no")),
-                stream=self.activity_events(),
+                stream=self.activity_events(headers, p),
             )
         match = re.fullmatch("/api/v1/nodes/([a-z0-9]+)", path)
         if match:

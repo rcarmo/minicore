@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import re
+from collections.abc import Iterable
 from datetime import datetime, timezone
 
 MAX_BYTES = 64 * 1024
@@ -31,7 +32,7 @@ class LogStore:
     def __init__(self, topology, secrets=()):
         self.topology = topology
         self.root = topology.observations.parent / "node-logs"
-        self.secrets = tuple(secrets)
+        self.secrets: Iterable[str] = tuple(secrets)
 
     def page(self, node: str, limit=100, cursor=None):
         if node not in self.topology.nodes:

@@ -50,3 +50,17 @@ Feature: Select an authorised visibility projection without changing capability
   Scenario: Evidence selectors cannot become arbitrary paths or commands
     When an Operator supplies undocumented evidence fields or unsafe filenames
     Then each call is rejected without exposing host or controller state
+
+  Scenario Outline: Revocation ends an existing evidence stream before its next event
+    When an authenticated "<path>" stream is opened and its credential is removed
+    Then the existing stream closes without another evidence event and releases its slot
+    And the removed credential cannot open another evidence stream
+    Examples:
+      | path                         |
+      | /api/v1/events?view=god      |
+      | /api/v1/nodes/p1/logs/events |
+      | /api/v1/activity/events     |
+
+  Scenario: Invalid credential replacement fails closed without anonymous fallback
+    When a private service credential file becomes invalid after startup
+    Then both the old credential and anonymous access are rejected

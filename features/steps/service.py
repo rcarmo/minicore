@@ -1238,3 +1238,52 @@ def routing_generation_invalidated(c):
         n["error_code"] == "generation_changed" and n["data"] is None and not n["raw_evidence"]
         for n in value["data"]["nodes"]
     )
+
+
+@when('an authenticated "{path}" stream is opened and its credential is removed')
+def revoke_stream(c, path):
+    async def exercise():
+        response = await c.server.handle_http_request_async(
+            method="GET", path=path, headers=headers("god"), body=b"", peer="127.0.0.1"
+        )
+        assert response.status == 200 and response.stream
+        stream = response.stream
+        await anext(stream)
+        (c.tokens).write_text(json.dumps({"operator": "o" * 40}))
+        try:
+            async with asyncio.timeout(4):
+                await anext(stream)
+        except StopAsyncIteration:
+            c.revocation_closed = True
+        else:
+            c.revocation_closed = False
+        finally:
+            await stream.aclose()
+
+    run(exercise())
+    c.revoked_path = path
+
+
+@then("the existing stream closes without another evidence event and releases its slot")
+def revoked_stream_closed(c):
+    assert c.revocation_closed and c.server.streams == 0
+
+
+@then("the removed credential cannot open another evidence stream")
+def cannot_reopen(c):
+    http_request(c, "god", "GET", c.revoked_path)
+    assert c.response.status == 401
+
+
+@when("a private service credential file becomes invalid after startup")
+def invalid_rotation(c):
+    from minicore_mcp.policy import Policy
+
+    c.server.policy = Policy("private", c.tokens)
+    (c.tokens).write_text("{bad json")
+
+
+@then("both the old credential and anonymous access are rejected")
+def invalid_fail_closed(c):
+    assert c.server.policy.authenticate(headers("god")) is None
+    assert c.server.policy.authenticate({}) is None

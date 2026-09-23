@@ -1,4 +1,4 @@
-"""Two roles only. Bearer for MCP, Operator-only Basic for browser access."""
+"""Two server-derived roles. Bounded credential reload, fail closed on rotation errors."""
 
 import base64
 import hmac
@@ -16,18 +16,60 @@ class Policy:
         if profile not in {"private", "authenticated"}:
             raise ValueError("Unknown exposure profile")
         self.profile = profile
-        self.credentials = json.loads(token_file.read_text()) if token_file.exists() else {}
-        if not isinstance(self.credentials, dict) or set(self.credentials) - {"operator", "god"}:
+        self.token_file = token_file
+        self.required_file = token_file.exists() or profile == "authenticated"
+        self.invalid = False
+        self.credentials: dict[str, str] = {}
+        self._fingerprint: tuple[int, int, int] | None = None
+        self.reload()
+        if self.invalid:
+            raise ValueError("Invalid credential configuration")
+
+    def reload(self):
+        try:
+            stat = self.token_file.stat()
+            fingerprint = (stat.st_ino, stat.st_mtime_ns, stat.st_size)
+            if fingerprint == self._fingerprint:
+                return
+            if stat.st_size > 16384:
+                raise ValueError("Credential file too large")
+            with self.token_file.open("rb") as handle:
+                raw = handle.read(16385)
+            if len(raw) > 16384:
+                raise ValueError("Credential file too large")
+            credentials = json.loads(raw)
+            self.validate(credentials)
+            # Mutate in place so existing redaction views see the new credentials.
+            self.credentials.clear()
+            self.credentials.update(credentials)
+            self.required_file = True
+            self._fingerprint = fingerprint
+            self.invalid = False
+        except FileNotFoundError:
+            self.invalid = self.required_file
+            self._fingerprint = None
+            if self.invalid:
+                self.credentials.clear()
+        except (OSError, ValueError, TypeError):
+            self.invalid = True
+            self._fingerprint = None
+            self.credentials.clear()
+
+    def validate(self, credentials):
+        if not isinstance(credentials, dict) or set(credentials) - {"operator", "god"}:
             raise ValueError("Invalid credential roles")
-        values = list(self.credentials.values())
+        values = list(credentials.values())
         if any(not isinstance(x, str) or len(x) < 32 for x in values) or len(values) != len(
             set(values)
         ):
             raise ValueError("Credentials must be distinct strings of at least 32 characters")
-        if profile == "authenticated" and "operator" not in self.credentials:
+        if self.profile == "authenticated" and "operator" not in credentials:
             raise ValueError("Authenticated deployment requires Operator credential")
 
     def authenticate(self, headers):
+        self.reload()
+        if self.invalid:
+            return None
         auth = headers.get("authorization", "")
         if auth.startswith("Bearer "):
             token = auth[7:]
@@ -38,8 +80,8 @@ class Policy:
         if auth.startswith("Basic "):
             try:
                 user, token = base64.b64decode(auth[6:], validate=True).decode().split(":", 1)
-                expected = self.credentials.get(user) if user in {"operator", "god"} else None
-                if expected and hmac.compare_digest(token.encode(), expected.encode()):
+                basic_expected = self.credentials.get(user) if user in {"operator", "god"} else None
+                if basic_expected and hmac.compare_digest(token.encode(), basic_expected.encode()):
                     return MCPPrincipal(name=user, roles=(user,))
             except (ValueError, UnicodeError):
                 pass

@@ -2795,8 +2795,14 @@ class AsyncMCPServer:
                             payload = b": keepalive\n\n"
                         if session.disconnect_event.is_set() or session.writer is not writer:
                             break
+                        # Minicore: a long-lived GET must not outlive its credential.
+                        current = await self.authenticate_request_async(
+                            method=method, path=target, headers=headers, peer=peer[0] if peer else None,
+                        )
+                        if current != principal:
+                            break
                         writer.write(payload)
-                        await writer.drain()
+                        await wait_for(writer.drain(), timeout=10.0)
                         session.last_seen = monotonic()
                 except (CancelledError, ConnectionError, OSError):
                     pass

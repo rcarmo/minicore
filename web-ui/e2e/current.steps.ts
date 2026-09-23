@@ -385,3 +385,116 @@ Then(
     await expect(checkbox).not.toBeChecked();
   },
 );
+
+Then(
+  "the workbench can switch AS, OSPF, BGP and prefix layers with source labels and a six-router evidence matrix",
+  async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "P1", exact: true }).last().click();
+    for (const layer of ["AS", "OSPF", "BGP", "Prefix"]) {
+      await page.getByRole("button", { name: layer, exact: true }).click();
+      await expect(
+        page.getByRole("heading", { name: "P1", exact: true }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("region", { name: "Routing layers" }),
+      ).toContainText("Declared");
+    }
+    await expect(
+      page
+        .getByRole("table", { name: "Exact prefix evidence" })
+        .locator("tbody tr"),
+    ).toHaveCount(6);
+    await expect(
+      page.getByRole("region", { name: "Routing layers" }),
+    ).toContainText("not collected");
+    await expect(
+      page.getByRole("region", { name: "Routing layers" }),
+    ).toContainText("backend_not_configured");
+  },
+);
+
+async function routingFixture(page: import("@playwright/test").Page) {
+  const topology = await (await page.request.get("/api/v1/topology")).json();
+  return (prefix: string) => ({
+    generation: topology.generation,
+    status: "ok",
+    data: {
+      prefix,
+      collected: 6,
+      expected: 6,
+      atomic: false,
+      nodes: topology.nodes
+        .filter((n: { kind: string }) => n.kind === "router")
+        .map((n: { id: string }) => ({
+          node_id: n.id,
+          generation: topology.generation,
+          source: "node_dispatcher",
+          collected_at: new Date(Date.now() - 29000).toISOString(),
+          error_code: null,
+          truncated: false,
+          data: {
+            prefix,
+            bgp: { paths: [] },
+            rib: {},
+            fib: [],
+            advertised: [],
+            received: { status: "not_collected" },
+            ospf_neighbors: {},
+            bgp_peers: {
+              ipv4Unicast: {
+                peers: {
+                  "10.254.0.2": { state: "Established" },
+                  "10.254.0.1": { state: "Idle" },
+                },
+              },
+            },
+          },
+        })),
+    },
+  });
+}
+Then(
+  "routing evidence becomes stale and BGP endpoint disagreement is not collapsed",
+  async ({ page }) => {
+    const fixture = await routingFixture(page);
+    await page.route("**/api/v1/routing?*", (route) =>
+      route.fulfill({ json: fixture("10.200.8.0/29") }),
+    );
+    await page.goto("/");
+    await page.getByRole("button", { name: "BGP", exact: true }).click();
+    const row = page
+      .getByRole("table", { name: "BGP endpoint observations" })
+      .getByRole("row")
+      .filter({ hasText: "p1 ↔ p2" });
+    await expect(row).toContainText("Established");
+    await expect(row).toContainText("Idle");
+    await expect(row).toContainText("stale", { timeout: 6000 });
+  },
+);
+Then(
+  "a late first-prefix response cannot replace the second prefix evidence",
+  async ({ page }) => {
+    const fixture = await routingFixture(page);
+    await page.route("**/api/v1/routing?*", async (route) => {
+      const prefix = new URL(route.request().url()).searchParams.get("prefix")!;
+      const result = fixture(prefix);
+      if (prefix === "10.200.8.0/29") {
+        await new Promise((r) => setTimeout(r, 1000));
+        result.status = "late-first-prefix";
+      }
+      await route.fulfill({ json: result });
+    });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Prefix", exact: true }).click();
+    await page.getByLabel("One prefix").selectOption("10.200.9.0/29");
+    await expect(
+      page.getByRole("region", { name: "Routing layers" }),
+    ).toContainText("ok · 6/6 collected");
+    await page.waitForTimeout(1200);
+    await expect(
+      page.getByRole("region", { name: "Routing layers" }),
+    ).not.toContainText("late-first-prefix");
+    await expect(page.getByLabel("One prefix")).toHaveValue("10.200.9.0/29");
+  },
+);

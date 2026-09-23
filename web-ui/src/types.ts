@@ -15,6 +15,9 @@ export interface TopologyNode {
   label: string;
   role: "host" | "ce" | "pe" | "core";
   kind: "endpoint" | "router";
+  asn?: number | null;
+  router_id?: string | null;
+  ospf_areas?: string[];
   container_state?: string;
   expected: boolean;
   state: ObservationState;
@@ -28,6 +31,8 @@ export interface TopologyLink {
   source: string;
   target: string;
   kind: "data";
+  interfaces?: string[];
+  ospf_area?: string | null;
   state: ObservationState;
   expected: boolean;
   observed_at: string | null;
@@ -40,6 +45,15 @@ export interface TopologySnapshot {
   collected_at: string;
   source: "combined";
   runtime_status: "not_configured" | "available" | "partial" | "unavailable";
+  prefixes?: string[];
+  peerings?: {
+    id: string;
+    source: string;
+    target: string;
+    source_address: string;
+    target_address: string;
+    kind: string;
+  }[];
   nodes: TopologyNode[];
   links: TopologyLink[];
 }

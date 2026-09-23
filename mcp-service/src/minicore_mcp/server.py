@@ -18,6 +18,8 @@ from .faults import FaultController
 from .logs import LogStore
 from .model import Topology
 from .policy import GOD, OPERATOR, Policy
+from .routing import collect as collect_routing
+from .routing import prefixes
 from .ssh_adapter import SSHAdapter
 
 SCENARIOS = ("core-link-failure", "customer-bgp-failure", "data-path-degradation")
@@ -37,7 +39,8 @@ INPUTS = {
     "list_nodes": schema(),
     "get_evidence": schema(
         {
-            "kind": {"type": "string", "enum": ["topology", "logs", "configuration"]},
+            "prefix": STRING,
+            "kind": {"type": "string", "enum": ["topology", "logs", "configuration", "routing"]},
             "node_id": STRING,
             "file": STRING,
             "limit": {"type": "integer", "minimum": 1, "maximum": 500},
@@ -171,11 +174,16 @@ class Server(AsyncMCPServer):
         if name == "get_evidence":
             allowed = {
                 "topology": {"kind"},
+                "routing": {"kind", "prefix"},
                 "logs": {"kind", "node_id", "limit", "cursor"},
                 "configuration": {"kind", "node_id", "file"},
             }[args["kind"]]
-            if set(args) - allowed or (args["kind"] != "topology" and "node_id" not in args):
+            if set(args) - allowed or (
+                args["kind"] in {"logs", "configuration"} and "node_id" not in args
+            ):
                 raise ValueError("invalid_arguments")
+            if args["kind"] == "routing" and args.get("prefix") not in prefixes(self.topology):
+                raise ValueError("invalid_prefix")
             if "file" in args and args["file"] not in {"daemons", "frr.conf", "network.json"}:
                 raise ValueError("invalid_arguments")
         node = args.get("node_id")
@@ -226,6 +234,10 @@ class Server(AsyncMCPServer):
             if args["kind"] == "topology":
                 result = self.topology.envelope(
                     "get_topology", data=self.project_topology("agent"), request_id=trace
+                )
+            elif args["kind"] == "routing":
+                result = await collect_routing(
+                    self.topology, self.adapter, args["prefix"], self.activity
                 )
             elif args["kind"] == "logs":
                 try:
@@ -520,6 +532,17 @@ class Server(AsyncMCPServer):
                     stream=self.log_events(node),
                 )
             return self.response(200 if result["status"] == "ok" else 503, result)
+        if path == "/api/v1/routing":
+            try:
+                query = parse_qs(
+                    target.query, keep_blank_values=True, strict_parsing=True, max_num_fields=1
+                )
+                if set(query) != {"prefix"} or len(query["prefix"]) != 1:
+                    raise ValueError()
+                result = await collect_routing(self.topology, self.adapter, query["prefix"][0])
+            except ValueError:
+                return self.response(400, {"error_code": "invalid_arguments"})
+            return self.response(200, result)
         route_match = re.fullmatch(r"/api/v1/nodes/([a-z0-9]+)/routes", path)
         if route_match:
             node = route_match.group(1)

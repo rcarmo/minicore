@@ -53,3 +53,12 @@ Feature: Current network workbench interactions
 
   Scenario: Deny unavailable God access and ignore obsolete privileged responses
     Then an Operator cannot enable the checkbox and a late God-view response cannot overwrite Agent view
+
+  Scenario: Explore domains and one-prefix visibility without moving the network
+    Then the workbench can switch AS, OSPF, BGP and prefix layers with source labels and a six-router evidence matrix
+
+  Scenario: Routing evidence ages and preserves conflicting endpoint observations
+    Then routing evidence becomes stale and BGP endpoint disagreement is not collapsed
+
+  Scenario: A prefix change cancels the previous routing projection
+    Then a late first-prefix response cannot replace the second prefix evidence

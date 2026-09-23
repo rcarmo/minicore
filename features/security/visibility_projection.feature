@@ -5,7 +5,7 @@ Feature: Select an authorised visibility projection without changing capability
 
   Scenario: Operator discovery includes bounded browser evidence
     When "operator" requests tool discovery
-    Then get_evidence exposes only topology, logs and declared configuration selectors
+    Then get_evidence exposes only topology, logs, declared configuration and bounded routing selectors
 
   Scenario Outline: HTTP evidence matches the Operator MCP contract
     Given generated node baseline files are available

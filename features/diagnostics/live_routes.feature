@@ -57,3 +57,9 @@ Feature: Collect real router routes through restricted SSH and MCP
     Given diagnostic keys and pinned node host keys have been provisioned
     When the adapter attempts p1 with a wrong diagnostic private key
     Then the result reports ssh_authentication_failed with no route evidence
+
+  Scenario: Shared bounded routing selector returns real multi-source evidence
+    When the official Operator SDK collects the first customer prefix across six routers
+    Then all routing observations contain exact BGP, RIB and kernel evidence
+    And each peer export has sender provenance and received routes remain uncollected
+    And HTTP exposes the same exact-prefix semantics without controller ground truth

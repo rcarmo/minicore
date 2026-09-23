@@ -14,6 +14,8 @@ from pathlib import Path
 
 LIMIT = 48 * 1024
 ALLOWED = {
+    "get_routing": {"operation", "prefix"},
+    "get_advertised": {"operation", "peer", "prefix"},
     "get_routes": {"operation", "prefix"},
     "get_interfaces": {"operation", "interface"},
     "get_neighbors": {"operation", "protocol"},
@@ -38,6 +40,18 @@ def decode_request(payload):
 
 def command_for(request, inventory):
     operation = request["operation"]
+    if operation in {"get_routing", "get_advertised"}:
+        if request.get("prefix") not in inventory.get("prefixes", []):
+            raise ValueError("invalid_prefix")
+        if operation == "get_routing":
+            return None  # fixed bounded multi-command collector, never caller argv
+        if request.get("peer") not in inventory.get("peers", []):
+            raise ValueError("denied_peer")
+        return [
+            "/usr/bin/vtysh",
+            "-c",
+            "show bgp ipv4 unicast neighbors " + request["peer"] + " advertised-routes json",
+        ]
     if operation == "get_routes":
         prefix = request.get("prefix")
         if prefix is not None:
@@ -159,6 +173,114 @@ def normalise(operation, output):
     }
 
 
+def collect_routing(request, inventory):
+    command_for(request, inventory)
+    prefix = request["prefix"]
+    started = time.monotonic()
+    remaining = LIMIT
+    raw = {}
+    result = {
+        "status": "error",
+        "error_code": None,
+        "data": None,
+        "raw_evidence": "",
+        "truncated": False,
+        "duration_ms": 0,
+    }
+
+    def read(name, argv, shape):
+        nonlocal remaining
+        deadline = 9 - (time.monotonic() - started)
+        if deadline <= 0:
+            raise ValueError("execution_timeout")
+        execution = run_bounded(argv, deadline=deadline, limit=remaining)
+        remaining -= len(execution["stdout"].encode()) + len(execution["stderr"].encode())
+        if execution["error_code"]:
+            raise ValueError(execution["error_code"])
+        if execution["exit_code"] != 0:
+            raise ValueError("command_failed")
+        value = json.loads(execution["stdout"])
+        if not isinstance(value, shape):
+            raise ValueError("parse_failure")
+        raw[name] = value
+        return value
+
+    def vty(name, command):
+        return read(name, ["/usr/bin/vtysh", "-c", command + " json"], dict)
+
+    try:
+        bgp = vty("bgp", "show bgp ipv4 unicast " + prefix)
+        if bgp.get("prefix") != prefix:
+            bgp = {"prefix": prefix, "paths": []}
+        elif not isinstance(bgp.get("paths"), list):
+            raise ValueError("parse_failure")
+        rib = vty("rib", "show ip route " + prefix)
+        rib = {prefix: rib[prefix]} if prefix in rib else {}
+        if prefix in rib and not isinstance(rib[prefix], list):
+            raise ValueError("parse_failure")
+        fib = read("fib", ["/sbin/ip", "-j", "route", "show", "exact", prefix], list)
+        if any(not isinstance(route, dict) for route in fib):
+            raise ValueError("parse_failure")
+        fib = [route for route in fib if route.get("dst") == prefix]
+        peers = vty("bgp_peers", "show bgp summary")
+        ospf = (
+            vty("ospf_neighbors", "show ip ospf neighbor")
+            if "ospf" in inventory["protocols"]
+            else {"status": "protocol_not_enabled"}
+        )
+        advertised = []
+        for peer in inventory["peers"]:
+            value = read(
+                "advertised:" + peer,
+                command_for(
+                    {"operation": "get_advertised", "peer": peer, "prefix": prefix}, inventory
+                ),
+                dict,
+            )
+            routes = value.get("advertisedRoutes")
+            if not isinstance(routes, dict):
+                raise ValueError("parse_failure")
+            advertised.append(
+                {
+                    "peer": peer,
+                    "prefix": prefix,
+                    "present": prefix in routes,
+                    "source": "advertised_by_node",
+                    "route": routes.get(prefix),
+                }
+            )
+        data = {
+            "prefix": prefix,
+            "bgp": bgp,
+            "rib": rib,
+            "fib": fib,
+            "bgp_peers": peers,
+            "ospf_neighbors": ospf,
+            "advertised": advertised,
+            "received": {
+                "status": "not_collected",
+                "reason": "pre_policy_received_routes_not_enabled",
+            },
+        }
+        result.update(status="ok", data=data)
+    except (ValueError, TypeError, KeyError) as exc:
+        code = str(exc)
+        result["error_code"] = (
+            code
+            if code in {"execution_timeout", "output_limit", "command_failed"}
+            else "parse_failure"
+        )
+        result["truncated"] = code == "output_limit"
+    result.update(
+        raw_evidence=json.dumps(raw), duration_ms=round((time.monotonic() - started) * 1000)
+    )
+    if len(json.dumps(result).encode()) > 65536:
+        result.update(
+            status="error", error_code="output_limit", data=None, raw_evidence="", truncated=True
+        )
+    return result
+
+
 def main():
     result = {
         "status": "error",
@@ -175,6 +297,9 @@ def main():
         request = decode_request(sys.stdin.buffer.read(4097))
         inventory = json.loads(Path("/etc/minicore/node.json").read_text())
         cmd = command_for(request, inventory)
+        if request["operation"] == "get_routing":
+            print(json.dumps(collect_routing(request, inventory)))
+            return
         execution = run_bounded(cmd)
         error = execution["error_code"]
         if (

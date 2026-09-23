@@ -494,3 +494,67 @@ def bad_private_result(c):
         and c.bad_key["data"] is None
         and not c.bad_key["raw_evidence"]
     )
+
+
+@when("the official Operator SDK collects the first customer prefix across six routers")
+def live_routing(c):
+    async def collect():
+        token = json.loads((ROOT / "secrets/http/mcp-tokens.json").read_text())["operator"]
+        async with httpx.AsyncClient(headers={"Authorization": "Bearer " + token}) as http:
+            async with streamable_http_client("http://127.0.0.1:19000/mcp", http_client=http) as (
+                read,
+                write,
+                _,
+            ):
+                async with ClientSession(
+                    read, write, read_timeout_seconds=timedelta(seconds=30)
+                ) as client:
+                    await client.initialize()
+                    return await client.call_tool(
+                        "get_evidence", {"kind": "routing", "prefix": "10.200.8.0/29"}
+                    )
+
+    c.routing = asyncio.run(collect())
+
+
+@then("all routing observations contain exact BGP, RIB and kernel evidence")
+def live_routing_exact(c):
+    assert not c.routing.isError, c.routing
+    c.routing_value = c.routing.structuredContent
+    assert json.loads(c.routing.content[0].text) == c.routing_value
+    assert c.routing_value["data"]["collected"] == 6, c.routing_value
+    for node in c.routing_value["data"]["nodes"]:
+        data = node["data"]
+        assert (
+            data["prefix"] == "10.200.8.0/29"
+            and data["bgp"]["paths"]
+            and data["rib"]["10.200.8.0/29"]
+            and data["fib"]
+        ), node
+        assert (
+            node["source"] == "node_dispatcher" and node["collected_at"] and not node["truncated"]
+        )
+
+
+@then("each peer export has sender provenance and received routes remain uncollected")
+def live_exports(c):
+    for node in c.routing_value["data"]["nodes"]:
+        data = node["data"]
+        assert data["advertised"] and all(
+            a["source"] == "advertised_by_node" for a in data["advertised"]
+        )
+        assert data["received"]["status"] == "not_collected"
+
+
+@then("HTTP exposes the same exact-prefix semantics without controller ground truth")
+def routing_http(c):
+    response = httpx.get("http://127.0.0.1:19000/api/v1/routing?prefix=10.200.8.0%2F29", timeout=30)
+    assert response.status_code == 200
+    value = response.json()
+    assert value["data"]["collected"] == 6 and "controller" not in value
+    for node in value["data"]["nodes"]:
+        other = next(n for n in c.routing_value["data"]["nodes"] if n["node_id"] == node["node_id"])
+        assert set(node["data"]["rib"]) == set(other["data"]["rib"])
+        assert [a["peer"] for a in node["data"]["advertised"]] == [
+            a["peer"] for a in other["data"]["advertised"]
+        ]

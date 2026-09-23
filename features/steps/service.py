@@ -4,6 +4,7 @@ import copy
 import http.client
 import json
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 from behave import given, then, when
 from minicore_mcp.model import Topology, utc_now
@@ -796,7 +797,9 @@ def configuration_private_key_removed(c):
     assert "-----BEGIN" not in content and "-----END" not in content
 
 
-@then("get_evidence exposes only topology, logs and declared configuration selectors")
+@then(
+    "get_evidence exposes only topology, logs, declared configuration and bounded routing selectors"
+)
 def evidence_discovery(c):
     tool = next((t for t in c.result["result"]["tools"] if t["name"] == "get_evidence"), None)
     assert tool is not None
@@ -804,6 +807,7 @@ def evidence_discovery(c):
         "topology",
         "logs",
         "configuration",
+        "routing",
     ]
     assert tool["inputSchema"]["additionalProperties"] is False
 
@@ -953,4 +957,284 @@ def unsafe_evidence(c):
 def rejected_evidence(c):
     assert all("error" in r and r["error"]["code"] == -32602 for r in c.evidence_denied), (
         c.evidence_denied
+    )
+
+
+@then("provider routers declare AS 65000 and area 0 while endpoints have no BGP ASN")
+def domains(c):
+    nodes = {n["id"]: n for n in c.first["nodes"]}
+    assert all(
+        nodes[n]["asn"] == 65000 and nodes[n]["ospf_areas"] == ["0"]
+        for n in ["p1", "p2", "pe1", "pe2"]
+    )
+    assert all(nodes[n]["asn"] is None for n in ["host1", "host2"])
+
+
+@then("each logical BGP peering is distinct from the nine physical links")
+def logical_peers(c):
+    assert len(c.first["peerings"]) == 8 and len(c.first["links"]) == 9
+    assert any({p["source"], p["target"]} == {"pe1", "pe2"} for p in c.first["peerings"])
+    assert not any({p["source"], p["target"]} == {"pe1", "pe2"} for p in c.first["links"])
+
+
+@given("six routers return controlled routing observations")
+def routing_fixture(c):
+    class Adapter:
+        async def execute(self, node, request):
+            return {
+                "status": "ok",
+                "error_code": None,
+                "data": {
+                    "prefix": request["prefix"],
+                    "bgp": {
+                        "prefix": request["prefix"],
+                        "paths": [{"valid": True, "bestpath": {"overall": True}}],
+                    },
+                    "rib": {request["prefix"]: [{"protocol": "bgp"}]},
+                    "fib": [{"dst": request["prefix"]}],
+                    "bgp_peers": {"ipv4Unicast": {"peers": {}}},
+                    "ospf_neighbors": {},
+                    "advertised": [
+                        {"peer": "10.254.0.2", "present": True, "source": "advertised_by_node"}
+                    ],
+                    "received": {"status": "not_collected"},
+                    "interfaces": [],
+                },
+                "raw_evidence": "{}",
+                "duration_ms": 1,
+                "truncated": False,
+            }
+
+    c.server.adapter = Adapter()
+
+
+@when("the routing view requests 10.200.8.0/29")
+def get_routing(c):
+    http_request(c, "operator", "GET", "/api/v1/routing?prefix=10.200.8.0/29")
+
+
+@then("BGP, RIB, FIB and per-peer advertisement observations remain separate")
+def layers(c):
+    assert c.response.status == 200, c.response.body
+    c.routing = json.loads(c.response.body)["data"]
+    assert len(c.routing["nodes"]) == 6
+    assert all({"bgp", "rib", "fib", "advertised"} <= set(n["data"]) for n in c.routing["nodes"])
+
+
+@then("each node result includes source, collection time, completeness and generation")
+def routing_metadata(c):
+    for node in c.routing["nodes"]:
+        assert (
+            node["source"] == "node_dispatcher"
+            and node["collected_at"]
+            and node["generation"] == c.generation
+            and node["truncated"] is False
+        )
+
+
+@then("the same Operator MCP evidence selector returns equivalent data")
+def routing_parity(c):
+    result = rpc(
+        c,
+        "operator",
+        "tools/call",
+        {"name": "get_evidence", "arguments": {"kind": "routing", "prefix": "10.200.8.0/29"}},
+    )["result"]["structuredContent"]["data"]
+    assert [n["data"] for n in result["nodes"]] == [n["data"] for n in c.routing["nodes"]]
+
+
+@then("a reported advertised route has sender-side provenance only")
+def export_source(c):
+    data = json.loads(c.response.body)["data"]
+    assert all(n["data"]["advertised"][0]["source"] == "advertised_by_node" for n in data["nodes"])
+
+
+@then("raw received routes are labelled not collected")
+def received_unknown(c):
+    assert all(
+        n["data"]["received"]["status"] == "not_collected"
+        for n in json.loads(c.response.body)["data"]["nodes"]
+    )
+
+
+@given("one routing collector fails while the other five succeed")
+def routing_partial(c):
+    routing_fixture(c)
+    original = c.server.adapter.execute
+
+    async def fail(node, request):
+        if node == "p1":
+            return {
+                "status": "unavailable",
+                "error_code": "execution_timeout",
+                "data": None,
+                "raw_evidence": "",
+                "duration_ms": 1,
+                "truncated": False,
+            }
+        return await original(node, request)
+
+    c.server.adapter.execute = fail
+
+
+@then("five observations are collected and the unavailable node retains its error")
+def partial_count(c):
+    data = json.loads(c.response.body)["data"]
+    assert data["collected"] == 5
+    assert (
+        next(n for n in data["nodes"] if n["node_id"] == "p1")["error_code"] == "execution_timeout"
+    )
+
+
+@then("the response is labelled partial rather than healthy absence")
+def partial_status(c):
+    assert json.loads(c.response.body)["status"] == "partial"
+
+
+@when("a routing dispatcher receives a peer outside its declared peer list")
+def denied_peer(c):
+    from node_dispatcher import command_for
+
+    try:
+        command_for(
+            {"operation": "get_advertised", "peer": "8.8.8.8", "prefix": "10.200.8.0/29"},
+            {"peers": ["10.254.0.2"], "prefixes": ["10.200.8.0/29"]},
+        )
+    except ValueError:
+        c.peer_denied = True
+    else:
+        c.peer_denied = False
+
+
+@then("the peer export request is denied before execution")
+def peer_denied(c):
+    assert c.peer_denied
+
+
+@given(
+    "bounded FRR and kernel outputs include only a covering BGP and RIB route and two exact FIB nexthops"
+)
+def routing_commands(c):
+    c.command_outputs = [
+        {"prefix": "10.200.0.0/16", "paths": [{"valid": True}]},
+        {"10.200.0.0/16": [{"protocol": "bgp"}]},
+        [
+            {
+                "dst": "10.200.8.0/29",
+                "nexthops": [{"gateway": "10.200.1.1"}, {"gateway": "10.200.2.1"}],
+            }
+        ],
+        {"ipv4Unicast": {"peers": {}}},
+        {},
+    ]
+
+
+@given("the BGP collector returns a JSON list instead of a routing object")
+def routing_bad_shape(c):
+    routing_commands(c)
+    c.command_outputs[0] = []
+
+
+@when("the node collects one prefix routing snapshot")
+def run_routing_node(c):
+    import node_dispatcher
+
+    outputs = iter(c.command_outputs)
+
+    def run(argv, **kwargs):
+        return {
+            "stdout": json.dumps(next(outputs)),
+            "stderr": "",
+            "exit_code": 0,
+            "error_code": None,
+            "duration_ms": 1,
+        }
+
+    # This callable contract is absent before implementation, so assertion is the behavioural red gate.
+    assert hasattr(node_dispatcher, "collect_routing"), "bounded routing collection is unavailable"
+    with patch.object(node_dispatcher, "run_bounded", side_effect=run):
+        c.routing_execution = node_dispatcher.collect_routing(
+            {"operation": "get_routing", "prefix": "10.200.8.0/29"},
+            {"prefixes": ["10.200.8.0/29"], "peers": [], "protocols": ["bgp", "ospf"]},
+        )
+
+
+@then("covering routes are not reported as exact BGP or RIB presence")
+def exact_absence(c):
+    data = c.routing_execution["data"]
+    assert data["bgp"]["paths"] == [] and data["rib"] == {}
+
+
+@then("both exact FIB nexthops remain in the evidence")
+def fib_ecmp(c):
+    assert len(c.routing_execution["data"]["fib"][0]["nexthops"]) == 2
+
+
+@then("the collection reports parse_failure instead of absent routes")
+def routing_parse_failed(c):
+    assert (
+        c.routing_execution["error_code"] == "parse_failure" and c.routing_execution["data"] is None
+    )
+
+
+@given("one node returns an unrelated prefix in the routing response")
+def unrelated_prefix(c):
+    original = c.server.adapter.execute
+
+    async def altered(node, request):
+        result = await original(node, request)
+        if node == "p1":
+            result["data"]["prefix"] = "0.0.0.0/0"
+        return result
+
+    c.server.adapter.execute = altered
+
+
+@then("the unrelated prefix is rejected as parse_failure")
+def prefix_rejected(c):
+    assert c.response.status == 200, c.response.body
+    data = json.loads(c.response.body)["data"]
+    node = next(n for n in data["nodes"] if n["node_id"] == "p1")
+    assert node["error_code"] == "parse_failure" and node["data"] is None
+
+
+@given('one node returns malformed "{field}" routing evidence')
+def malformed_routing(c, field):
+    original = c.server.adapter.execute
+
+    async def altered(node, request):
+        result = await original(node, request)
+        if node == "p1":
+            result["data"][field] = {
+                "advertised": [{"peer": "10.254.0.2", "present": "false", "source": "invented"}],
+                "fib": [None],
+                "bgp": {"paths": "absent"},
+                "received": {"status": "accepted"},
+                "rib": {request["prefix"]: "absent"},
+            }[field]
+        return result
+
+    c.server.adapter.execute = altered
+
+
+@given("generation advances during routing collection")
+def routing_generation_change(c):
+    original = c.server.adapter.execute
+
+    async def changed(node, request):
+        result = await original(node, request)
+        if node == "p1":
+            c.topology.inventory["generation"] += 1
+        return result
+
+    c.server.adapter.execute = changed
+
+
+@then("no prior generation evidence is returned as current")
+def routing_generation_invalidated(c):
+    value = json.loads(c.response.body)
+    assert value["status"] == "unavailable" and value["data"]["collected"] == 0
+    assert all(
+        n["error_code"] == "generation_changed" and n["data"] is None and not n["raw_evidence"]
+        for n in value["data"]["nodes"]
     )

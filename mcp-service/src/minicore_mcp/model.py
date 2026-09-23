@@ -8,6 +8,8 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .routing import declared, prefixes
+
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -115,6 +117,9 @@ class Topology:
                     "container_state": container_state,
                     "observed_at": payload["collected_at"] if o else None,
                     "management_address": n.get("management_address"),
+                    "asn": n.get("asn"),
+                    "router_id": n["loopback"].split("/")[0] if n.get("loopback") else None,
+                    "ospf_areas": ["0"] if "ospf" in n["protocols"] else [],
                 }
             )
         links = [
@@ -123,6 +128,10 @@ class Topology:
                 "source": link["endpoints"][0]["node"],
                 "target": link["endpoints"][1]["node"],
                 "kind": "data",
+                "interfaces": [e["interface"] for e in link["endpoints"]],
+                "ospf_area": "0"
+                if all("ospf" in self.nodes[e["node"]]["protocols"] for e in link["endpoints"])
+                else None,
                 "state": "unknown",
                 "expected": True,
                 "observed_at": None,
@@ -135,6 +144,8 @@ class Topology:
             "lab_id": self.inventory["lab_id"],
             "generation": self.inventory["generation"],
             "source": "combined",
+            "peerings": declared(self),
+            "prefixes": prefixes(self),
             "runtime_status": runtime_status,
             "nodes": nodes,
             "links": links,

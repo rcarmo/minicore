@@ -364,6 +364,34 @@ if (import.meta.main) {
           {
             node_id: n.id,
             protocols: n.protocols,
+            prefixes: t.links
+              .filter((l) =>
+                l.endpoints.some(
+                  (e) =>
+                    t.nodes.find((v) => v.id === e.node)?.kind === "endpoint",
+                ),
+              )
+              .map((l) => l.subnet),
+            peers: [
+              ...t.nodes
+                .filter(
+                  (peer) =>
+                    peer.id !== n.id && peer.asn === 65000 && n.asn === 65000,
+                )
+                .map((peer) => peer.loopback!.split("/")[0]),
+              ...t.links
+                .filter((l) => l.endpoints.some((e) => e.node === n.id))
+                .flatMap((l) =>
+                  l.endpoints
+                    .filter(
+                      (e) =>
+                        e.node !== n.id &&
+                        t.nodes.find((v) => v.id === e.node)?.asn &&
+                        t.nodes.find((v) => v.id === e.node)?.asn !== n.asn,
+                    )
+                    .map((e) => e.address.split("/")[0]),
+                ),
+            ],
             source_addresses: Object.fromEntries(
               t.links.flatMap((l) =>
                 l.endpoints

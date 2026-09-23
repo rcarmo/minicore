@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import type { RoutingLayer } from "./routing";
 import type { TopologyNode, TopologySnapshot } from "./types";
 
 const roleColours: Record<TopologyNode["role"], number> = {
@@ -16,6 +17,8 @@ export class NetworkScene {
   private readonly pointer = new THREE.Vector2();
   private readonly devices = new THREE.Group();
   private readonly links = new THREE.Group();
+  private readonly overlay = new THREE.Group();
+  private layer: RoutingLayer = "Physical";
   private readonly activity = new THREE.Group();
   private activeIds = new Set<string>();
   private reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -48,6 +51,7 @@ export class NetworkScene {
       this.links,
       this.devices,
       this.activity,
+      this.overlay,
       new THREE.HemisphereLight(0xddeeff, 0x26323d, 2.1),
     );
     const key = new THREE.DirectionalLight(0xffffff, 1.8);
@@ -159,6 +163,64 @@ export class NetworkScene {
     }
     this.select(this.selected);
     this.setActivity([...this.activeIds]);
+    this.setLayer(this.layer);
+  }
+  setLayer(layer: RoutingLayer) {
+    this.layer = layer;
+    for (const child of [...this.overlay.children]) {
+      const mesh = child as THREE.Mesh;
+      mesh.geometry.dispose();
+      (mesh.material as THREE.Material).dispose();
+      this.overlay.remove(child);
+    }
+    if (!this.snapshot) return;
+    const byId = new Map(this.snapshot.nodes.map((n) => [n.id, n]));
+    if (layer === "AS" || layer === "OSPF") {
+      const groups = layer === "AS" ? [65000, 65001, 65002] : [65000];
+      for (const asn of groups) {
+        const nodes = this.snapshot.nodes.filter((n) => n.asn === asn);
+        if (!nodes.length) continue;
+        const points = nodes.map((n) => this.v(n));
+        const box = new THREE.Box3().setFromPoints(points).expandByScalar(0.9);
+        const size = box.getSize(new THREE.Vector3()),
+          center = box.getCenter(new THREE.Vector3());
+        const plane = new THREE.Mesh(
+          new THREE.PlaneGeometry(size.x, size.z),
+          new THREE.MeshBasicMaterial({
+            color:
+              asn === 65000 ? 0x447c91 : asn === 65001 ? 0x918153 : 0x77659c,
+            transparent: true,
+            opacity: 0.17,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          }),
+        );
+        plane.rotation.x = -Math.PI / 2;
+        plane.position.set(center.x, -0.3, center.z);
+        this.overlay.add(plane);
+      }
+    }
+    if (layer === "BGP")
+      for (const p of this.snapshot.peerings ?? []) {
+        const a = byId.get(p.source),
+          b = byId.get(p.target);
+        if (!a || !b) continue;
+        const start = this.v(a),
+          end = this.v(b),
+          mid = start.clone().lerp(end, 0.5);
+        mid.y += 1.4;
+        const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
+        const line = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(curve.getPoints(32)),
+          new THREE.LineDashedMaterial({
+            color: p.kind === "iBGP" ? 0xaaa2cd : 0xddac67,
+            dashSize: 0.12,
+            gapSize: 0.09,
+          }),
+        );
+        line.computeLineDistances();
+        this.overlay.add(line);
+      }
   }
   setActivity(ids: string[]) {
     this.activeIds = new Set(ids);
@@ -292,7 +354,12 @@ export class NetworkScene {
     this.renderer.render(this.scene, this.camera);
   };
   private clear() {
-    for (const group of [this.devices, this.links, this.activity]) {
+    for (const group of [
+      this.devices,
+      this.links,
+      this.activity,
+      this.overlay,
+    ]) {
       group.traverse((o) => {
         const x = o as THREE.Mesh;
         x.geometry?.dispose();

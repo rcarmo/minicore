@@ -394,3 +394,51 @@ aside nav {
 .controller-state p {
   margin: 5px 0;
 }
+
+.routing-layers {
+  margin: 1rem;
+  padding: 1rem;
+  border: 1px solid #384b62;
+  background: #111923;
+  overflow: auto;
+}
+.routing-layers nav,
+.routing-controls {
+  display: flex;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.routing-layers button[aria-pressed="true"] {
+  border-color: #9b92c4;
+  background: #292641;
+}
+.routing-layers table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.86rem;
+}
+.routing-layers th,
+.routing-layers td {
+  padding: 0.6rem;
+  border: 1px solid #384b62;
+  text-align: left;
+  vertical-align: top;
+}
+.routing-layers small {
+  display: block;
+  color: #a3b1c3;
+  font-weight: normal;
+}
+.routing-layers pre {
+  max-width: 50vw;
+  max-height: 22rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.routing-layers select {
+  background: #182333;
+  color: #e0e8f2;
+  padding: 0.5rem;
+}

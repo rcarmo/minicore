@@ -8,6 +8,7 @@ import {
   type ViewMode,
 } from "./visibility";
 import { useActivity } from "./activity";
+import { RoutingLayers, type RoutingLayer } from "./routing";
 import { NodeRoutes } from "./routes";
 import { NodeLogs } from "./logs";
 import { NodeConfiguration } from "./configuration";
@@ -16,6 +17,7 @@ import type { TopologySnapshot } from "./types";
 import "./styles.css";
 
 function App() {
+  const [layer, setLayer] = useState<RoutingLayer>("Physical");
   const [view, setView] = useState<ViewMode>("agent");
   const capable = useGodCapability();
   const changeView = (next: ViewMode) => {
@@ -37,6 +39,9 @@ function App() {
   useEffect(() => {
     scene.current?.setActivity(activityNodes);
   }, [activityNodes, snapshot]);
+  useEffect(() => {
+    scene.current?.setLayer(layer);
+  }, [layer, snapshot]);
   const selected = snapshot?.nodes.find((n) => n.id === selectedId);
 
   function select(id: string | null) {
@@ -269,6 +274,15 @@ function App() {
           </details>
         </aside>
       </section>
+      {snapshot && (
+        <RoutingLayers
+          key={view}
+          snapshot={snapshot}
+          layer={layer}
+          onLayer={setLayer}
+          epoch={view}
+        />
+      )}
       <footer>
         Runtime collection: {snapshot?.runtime_status ?? "unknown"} · Revision{" "}
         {snapshot?.revision ?? "—"} · Last fetch {lastFetched}

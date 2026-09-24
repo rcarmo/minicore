@@ -40,17 +40,19 @@ export function VisibilityToggle({
       class="god-toggle"
       title={
         capable
-          ? "Read-only full lab visibility"
+          ? "Show God controls and fault status"
           : "God authentication required"
       }
     >
       <input
         type="checkbox"
+        aria-label="God mode"
         checked={view === "god"}
         disabled={!capable}
         onChange={(e) => onChange(e.currentTarget.checked ? "god" : "agent")}
-      />{" "}
-      God mode <strong>{view === "god" ? "God view" : "Agent view"}</strong>
+      />
+      <span class="toggle-track" aria-hidden="true" />
+      <span>God mode</span>
     </label>
   );
 }

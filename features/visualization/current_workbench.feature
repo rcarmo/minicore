@@ -108,3 +108,6 @@ Feature: Current network workbench interactions
 
   Scenario: Inspector wording is short and specific
     Then the inspectors use plain status labels and keep source details collapsed
+
+  Scenario: One compact toolbar groups navigation and fault controls
+    Then the header replaces generation with God mode and keeps all controls inline with accessible touch targets

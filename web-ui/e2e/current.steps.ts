@@ -1251,3 +1251,108 @@ Then(
     ).not.toContainText("backend_not_configured");
   },
 );
+
+Then(
+  "the header replaces generation with God mode and keeps all controls inline with accessible touch targets",
+  async ({ page }) => {
+    const topology = await (await page.request.get("/api/v1/topology")).json();
+    let mutations = 0;
+    await page.route("**/api/v1/view", (r) =>
+      r.fulfill({ json: { can_god: true, fault_control: true } }),
+    );
+    await page.route("**/api/v1/topology?*", (r) =>
+      r.fulfill({
+        json: {
+          ...topology,
+          view: new URL(r.request().url()).searchParams.get("view"),
+          controller: { state: "baseline", verified: true },
+        },
+      }),
+    );
+    await page.route("**/api/v1/faults/*", (r) => {
+      mutations++;
+      return r.fulfill({
+        json: { error_code: null, data: { state: "baseline", verified: true } },
+      });
+    });
+    await page.goto("/#p1");
+    const header = page.locator("header");
+    await expect(
+      header.getByRole("checkbox", { name: "God mode", exact: true }),
+    ).toBeVisible();
+    await expect(header).not.toContainText("Generation");
+    await expect(
+      header.getByRole("navigation", { name: "Network layers" }),
+    ).toBeVisible();
+    await header
+      .getByRole("checkbox", { name: "God mode", exact: true })
+      .check();
+    await expect(
+      header.getByRole("button", { name: "Lightning — kill target" }),
+    ).toBeVisible();
+    await expect(
+      header.getByRole("button", { name: "Reset view", exact: true }),
+    ).toBeVisible();
+    const layers = header.getByRole("navigation", { name: "Network layers" });
+    await layers.getByRole("button", { name: "Physical", exact: true }).focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(
+      layers.getByRole("button", { name: "AS", exact: true }),
+    ).toBeFocused();
+    await expect(
+      layers.getByRole("button", { name: "Physical", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await page.keyboard.press("Enter");
+    await expect(
+      layers.getByRole("button", { name: "AS", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    for (const width of [1600, 820, 390]) {
+      await page.setViewportSize({ width, height: 1000 });
+      const row = await header.boundingBox();
+      expect(row!.height).toBeLessThanOrEqual(84);
+      const controls = [
+        header
+          .getByRole("checkbox", { name: "God mode", exact: true })
+          .locator(".."),
+        layers.getByRole("button", { name: "BGP", exact: true }),
+        header.getByRole("button", { name: "Lightning — kill target" }),
+        header.getByRole("button", { name: "Restore lab" }),
+      ];
+      const boxes = [];
+      for (const control of controls) {
+        const box = (await control.boundingBox())!;
+        expect(box.height).toBeGreaterThanOrEqual(44);
+        expect(box.width).toBeGreaterThanOrEqual(44);
+        expect(
+          await control.evaluate((el) =>
+            parseFloat(getComputedStyle(el).borderRadius),
+          ),
+        ).toBeGreaterThanOrEqual(8);
+        boxes.push(box);
+      }
+      expect(
+        Math.max(...boxes.map((b) => b.y)) - Math.min(...boxes.map((b) => b.y)),
+      ).toBeLessThanOrEqual(4);
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+      await header
+        .getByRole("button", { name: "Lightning — kill target" })
+        .focus();
+      await page.keyboard.press("ArrowRight");
+      await expect(
+        header.getByRole("button", { name: "Dice — random corruption" }),
+      ).toBeFocused();
+      expect(mutations).toBe(0);
+    }
+    await header
+      .getByRole("checkbox", { name: "God mode", exact: true })
+      .uncheck();
+    await expect(
+      header.getByRole("button", { name: "Lightning — kill target" }),
+    ).toHaveCount(0);
+    await page.unrouteAll({ behavior: "wait" });
+  },
+);

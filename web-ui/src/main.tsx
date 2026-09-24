@@ -1,4 +1,5 @@
 import { render } from "preact";
+import { toolbarNavigation } from "./toolbar-navigation";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import type { ProtocolFact } from "./routing-model";
 import { FaultToolbar, useFaultControls } from "./fault-toolbar";
@@ -175,38 +176,55 @@ function App() {
 
   return (
     <main>
-      <header>
-        <div>
+      <header class="workbench-header" aria-label="Workbench controls">
+        <div class="workbench-brand">
           <strong>MINICORE</strong>
-          <span>Network workbench</span>
+          <span title={snapshot?.lab_id}>
+            {snapshot?.lab_id ?? "Connecting…"}
+          </span>
         </div>
-        <dl>
-          <dt>Lab</dt>
-          <dd>{snapshot?.lab_id ?? "loading"}</dd>
-          <dt>Generation</dt>
-          <dd>{snapshot?.generation ?? "—"}</dd>
-          <dt>Updates</dt>
-          <dd data-state={stream}>{stream}</dd>
-        </dl>
-      </header>
-      <div class="view-toolbar">
-        <VisibilityToggle view={view} capable={capable} onChange={changeView} />
-        <nav aria-label="Network layers">
-          {(["Physical", "AS", "OSPF", "BGP", "Prefix"] as RoutingLayer[]).map(
-            (name) => (
+        <div class="header-context">
+          <VisibilityToggle
+            view={view}
+            capable={capable}
+            onChange={changeView}
+          />
+          <span
+            class="connection-status"
+            data-state={stream}
+            title={`Updates: ${stream}`}
+          >
+            <span class="connection-dot" aria-hidden="true" />
+            {stream === "connected" ? "connected" : "reconnecting"}
+          </span>
+        </div>
+        <div class="toolbar-scroll" aria-label="Workbench actions">
+          <nav
+            class="control-group layer-controls"
+            aria-label="Network layers"
+            onKeyDown={toolbarNavigation}
+          >
+            {(
+              ["Physical", "AS", "OSPF", "BGP", "Prefix"] as RoutingLayer[]
+            ).map((name) => (
               <button
                 aria-pressed={layer === name}
                 onClick={() => setLayer(name)}
               >
                 {name}
               </button>
-            ),
+            ))}
+          </nav>
+          <div class="control-group view-controls">
+            <button onClick={() => scene.current?.reset()} title="Reset camera">
+              Reset view
+            </button>
+          </div>
+          {view === "god" && capable && faultCapable && (
+            <FaultToolbar control={fault} />
           )}
-        </nav>
-      </div>
-      {view === "god" && capable && faultCapable && (
-        <FaultToolbar control={fault} />
-      )}
+        </div>
+      </header>
       <section class="workspace" data-fault-mode={fault.mode}>
         <div class="graph">
           <div class="graph-scene">
@@ -228,9 +246,6 @@ function App() {
             <br />
             Dashed: physical connections · Teal: peers connected · Amber:
             disagreement · Muted: awaiting observation
-          </div>
-          <div class="graph-tools">
-            <button onClick={() => scene.current?.reset()}>Reset view</button>
           </div>
           {(error || graphError) && (
             <div class="error" role="alert">

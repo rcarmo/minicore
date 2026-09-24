@@ -1,3 +1,4 @@
+import { toolbarNavigation } from "./toolbar-navigation";
 import { useEffect, useRef, useState } from "preact/hooks";
 export type FaultMode = "inspect" | "zap" | "dice";
 export function useFaultControls(
@@ -103,7 +104,12 @@ export function FaultToolbar({
 }) {
   return (
     <section class="fault-toolbar" aria-label="God fault controls">
-      <div class="fault-buttons">
+      <div
+        class="control-group fault-modes"
+        role="group"
+        aria-label="Fault mode selection"
+        onKeyDown={toolbarNavigation}
+      >
         <button
           aria-pressed={control.mode === "inspect"}
           onClick={() => control.arm("inspect")}
@@ -127,7 +133,13 @@ export function FaultToolbar({
         >
           ⚄ Corrupt
         </button>
-        <button onClick={() => void control.reset()} disabled={control.busy}>
+      </div>
+      <div class="control-group fault-recovery">
+        <button
+          class="restore-lab"
+          onClick={() => void control.reset()}
+          disabled={control.busy}
+        >
           Restore lab
         </button>
         {control.pending && (
@@ -136,7 +148,13 @@ export function FaultToolbar({
           </button>
         )}
       </div>
-      <span role="status" aria-label="Fault mode">
+      <span
+        class="fault-message"
+        role="status"
+        aria-live="polite"
+        aria-label="Fault mode"
+        hidden={control.mode === "inspect" && control.message === "Inspect"}
+      >
         {control.message}
       </span>
     </section>

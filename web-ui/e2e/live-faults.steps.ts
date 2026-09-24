@@ -158,9 +158,18 @@ Then(
     await expect(
       state.god.getByLabel("Controller ground truth"),
     ).not.toContainText(state.scenario!);
-    await expect(state.operator.locator("header")).toContainText(
-      String(reset.generation),
-      { timeout: 20000 },
+    // Generation remains an API/reconciliation field; it is no longer header text.
+    await expect
+      .poll(
+        async () => {
+          const response = await state.operator.request.get("/api/v1/topology");
+          return (await response.json()).generation;
+        },
+        { timeout: 20000 },
+      )
+      .toBe(reset.generation);
+    await expect(state.operator.locator("header")).not.toContainText(
+      "Generation",
     );
   },
 );

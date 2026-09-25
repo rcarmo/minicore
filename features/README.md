@@ -1,43 +1,41 @@
-# Behavioral specifications and executable coverage
+# Behavioural specifications
 
-## Status and source of truth
+Each feature has exactly one lifecycle tag:
 
-Each feature has exactly one status:
+- `@implemented`: current behaviour with executable bindings and one runner tag: `@python`, `@browser` or `@host`.
+- `@planned`: requirements under `features/planned/`, excluded from acceptance execution.
+- `@external`: opt-in tests that require a running lab or other explicit prerequisites.
 
-- **`@implemented`** — current behavior; one runner tag (`@python`, `@browser`, or `@host`) and executable bindings required.
-- **`@planned`** — preserved unimplemented design requirements, physically separated in `features/planned/`. These are not silently skipped acceptance tests or evidence of completion.
-- **`@external`** — opt-in real-lab scenario with explicit prerequisites; the FRR startup log demonstration and real node boot/routing/watcher suite. It is not part of deterministic acceptance.
+The generated [coverage map](../docs/development/behavior-coverage.md) lists features, scenarios, runners and expanded case counts. Execution reports establish which cases passed.
 
-The generated [coverage map](../docs/development/behavior-coverage.md) lists every feature, scenario, runner and expanded case count. It is a behavior inventory, not a line/branch coverage percentage or proof of the entire future system.
+## Run tests
 
-## Commands
+Run these commands from the repository root:
 
 ```sh
-make install           # Python test tools + frozen Bun dependencies
-make coverage-update   # regenerate map after editing Gherkin
-make acceptance        # fast checks + all implemented Gherkin + report reconciliation
-make bdd-python        # Behave service/model/log/security contracts and real HTTP tests
-make bdd-web           # Playwright-BDD browser and host-tool contracts
-make browser           # compatibility alias for bdd-web
-make bdd               # compatibility alias for acceptance
-make bdd-logs          # opt-in actual FRR startup evidence (needs p1 + collector)
-make bdd-boot          # boot all nodes, real peer/probe and watcher lifecycle checks
+make bootstrap         # locked Python and Bun dependencies
+make coverage-update   # regenerate the map after editing Gherkin
+make acceptance        # checks, implemented scenarios and report reconciliation
+make bdd-python        # Behave service, model, security and HTTP tests
+make bdd-web           # Playwright-BDD browser and host-tool tests
+make bdd-logs          # live FRR logs; requires p1 and the collector
+make bdd-boot           # live node boot, peers, packets and collector lifecycle
 ```
 
-Install Chromium once with `cd web-ui && bunx playwright install chromium`. Missing browser/tool dependencies fail; they do not produce skip-based success.
+Install Chromium with `cd web-ui && bunx playwright install chromium`. Missing dependencies fail the tests. `make browser` is an alias for `bdd-web`; `make bdd` is an alias for `acceptance`.
 
-`make check` validates syntax/classification, map freshness, generated topology, lint/typing, focused Python/Bun tests, production build and Compose syntax. **It does not replace `make acceptance`.**
+`make check` runs lint, typing, unit tests, generated-file checks, the frontend build and Compose validation. Use `make acceptance` to run and reconcile implemented Gherkin as well.
 
-## How the gate works
+## Acceptance checks
 
-- Official Cucumber parser compiles all features/outlines and rejects missing/conflicting lifecycle/runner tags or duplicate scenario names.
-- Python execution receives only inventoried `@implemented @python` files, so no unrelated planned skips enter the report.
-- Playwright-BDD generation binds implemented browser/host features; missing steps fail generation.
-- `make acceptance` reruns both suites, then reconciles JSON reports with the inventory: every current scenario and every outline case must be present and passed, under its exact feature/scenario identity. No undefined, skipped, failed, unexpectedly passed or retried-failing results count.
-- A new implemented feature omitted from runner configuration fails the final gate. A stale map fails `make check`.
+- The Cucumber parser rejects missing or conflicting lifecycle/runner tags and duplicate scenario names.
+- Behave receives only inventoried `@implemented @python` files.
+- Playwright-BDD binds implemented browser and host features. Missing steps fail generation.
+- The final check matches JSON results to exact feature, scenario and outline-case identities. Every implemented case must pass. Missing, skipped, undefined, failed or flaky results fail the check.
+- A stale coverage map fails `make check`. An implemented feature omitted from a runner fails report reconciliation.
 
-Browser acceptance launches an isolated loopback service with temporary observations/secrets and refuses to reuse a pre-existing listener. Host tests use temporary project copies and a recording Docker executable: they prove mapping, validation, limits and persistence, not router startup or forwarding. The public-port Compose smoke remains `make smoke`.
+Browser acceptance starts a disposable service on loopback with temporary observations and credentials. It refuses to reuse an existing listener. Host-tool tests use temporary project copies and a recording Docker executable to check command mapping, validation and persistence. Live routing and forwarding require the separate lab suites. `make smoke` checks the running management service through its published Compose port.
 
-## Development order
+## Change behaviour
 
-Follow project `AGENTS.md`: Gherkin first, executable red test for new behavior/fixes, minimal implementation, green acceptance, documentation alignment, regular commit. Existing-behavior characterization may start green; do not invent historical red runs. Tests for core functions remain useful alongside acceptance bindings.
+Follow the [development methodology](../docs/development/methodology.md): write Gherkin, demonstrate a behavioural failure for a new feature or fix, implement the change, run acceptance and commit. Existing behaviour may use passing characterisation tests. Keep unit tests alongside acceptance bindings where they isolate a failure more precisely.

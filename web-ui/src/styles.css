@@ -1149,3 +1149,80 @@ select:focus-visible {
     gap: 8px;
   }
 }
+.network-events-panel {
+  position: relative;
+  width: 100%;
+  border: 1px solid #3a5369;
+  border-radius: 16px;
+  background: #101b28;
+  box-shadow: 0 16px 45px #0007;
+  padding: 14px;
+  overflow: auto;
+}
+.network-events-panel .event-sparkline {
+  height: 64px;
+  width: 100%;
+  color: #65c8ba;
+  background: #0b1520;
+  border-radius: 10px;
+}
+.network-events-panel nav {
+  display: flex;
+  gap: 6px;
+  margin: 10px 0;
+}
+.network-events-panel button,
+.network-events-panel select {
+  min-height: 44px;
+  border-radius: 10px;
+}
+.network-events-panel .event-rows {
+  max-height: 240px;
+  overflow: auto;
+}
+.network-event-row {
+  display: grid;
+  grid-template-columns: 78px minmax(70px, 120px) 1fr;
+  gap: 9px;
+  padding: 9px 0;
+  border-bottom: 1px solid #2b4155;
+  font-size: 12px;
+  align-items: start;
+}
+.network-event-row button {
+  font-size: 11px;
+  padding: 5px;
+}
+.network-event-row time {
+  color: #8eabbe;
+  font-size: 11px;
+}
+.network-event-row p {
+  margin: 4px 0;
+  color: #b2c8d8;
+}
+.network-event-row pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.event-rates {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.event-rates td,
+.event-rates th {
+  padding: 6px;
+  text-align: left;
+  border-bottom: 1px solid #30475b;
+}
+
+.floating-panel:has(.network-events-panel) {
+  left: 24px;
+  right: auto;
+  bottom: 30px;
+  top: auto;
+  width: min(820px, calc(100vw - 48px));
+  max-height: 48vh;
+  z-index: 15;
+}

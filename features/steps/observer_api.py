@@ -150,3 +150,50 @@ def changed_generation(c):
 def changed_empty(c):
     result = json.loads(c.obs_http.body)
     assert result["generation"] == c.generation + 1 and result["records"] == []
+
+
+@given("both ends of an inventoried link have fresh interface counters")
+def link_samples(c):
+    c.obs.put(
+        "node:p2:interfaces",
+        {"interfaces": [{"interface": "to-p1", "state": "UP", "tx_packets": 5, "rx_packets": 3}]},
+        acquired=100,
+        incarnation="p2-test",
+    )
+    c.obs_now = 110
+
+
+@when("Operator reads the link interface scope")
+def link_read(c):
+    c.obs_http = http(c, "scope=link&link_id=p1-p2&kind=interfaces")
+
+
+@then("each endpoint is labelled once and the original sample lifetime is preserved")
+def link_data(c):
+    data = json.loads(c.obs_http.body)
+    assert (
+        c.obs_http.status == 200
+        and data["scope"] == "link:p1-p2:interfaces"
+        and len(data["records"]) == 2
+    ), data
+    interfaces = [i for row in data["records"] for i in row["data"]["interfaces"]]
+    assert {i["node_id"] for i in interfaces} == {"p1", "p2"} and all(
+        row["remaining_ms"] <= 50000 for row in data["records"]
+    ), data
+
+
+@given("one link endpoint collection fails")
+def failed_endpoint(c):
+    c.obs.health("node:p2:interfaces", "collection_timeout", "p2-test")
+
+
+@then("healthy endpoint rows remain but comparison is marked incomplete")
+def link_partial(c):
+    data = json.loads(c.obs_http.body)
+    assert data["source_health"] != "ok" and data["truncated"] and data["records"], data
+
+
+@then("per-endpoint health identifies p2 as timed out and p1 as healthy")
+def endpoints_identified(c):
+    data = json.loads(c.obs_http.body)
+    assert data.get("sources") == {"p1": "ok", "p2": "collection_timeout"}, data

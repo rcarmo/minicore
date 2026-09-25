@@ -104,3 +104,9 @@ host-fault-stop:
 
 live-targeted:
 	.venv/bin/behave features/operations/live_targeted.feature
+observer-start:
+	sh scripts/observer-service.sh start
+observer-stop:
+	sh scripts/observer-service.sh stop
+live-observer:
+	.venv/bin/behave features/operations/live_observer.feature

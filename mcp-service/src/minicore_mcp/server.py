@@ -21,7 +21,7 @@ from .faults import SCENARIOS as FAULT_SPECS
 from .faults import FaultController
 from .logs import LogStore
 from .model import Topology
-from .observer import Store
+from .observer import Store, link_snapshot
 from .observer import selector as observer_selector
 from .policy import GOD, OPERATOR, Policy
 from .routing import collect as collect_routing
@@ -666,6 +666,8 @@ class Server(AsyncMCPServer):
             store = Store(self.topology.inventory["lab_id"], self.topology.inventory["generation"])
         if store.generation != self.topology.inventory["generation"]:
             store.reset(self.topology.inventory["generation"])
+        if args["scope"] == "link":
+            return link_snapshot(store, self.topology, args["link_id"], args["observation"])
         return store.snapshot(scope)
 
     async def observer_events(self, headers, principal):

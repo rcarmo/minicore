@@ -39,7 +39,11 @@ class CounterService:
                 self.mappings.pop(node, None)
                 continue
             incarnation = hashlib.sha256(row["incarnation"].encode()).hexdigest()[:24]
-            self.store.put(scope, row["data"], acquired=row["acquired"], incarnation=incarnation)
+            accepted = self.store.put(
+                scope, row["data"], acquired=row["acquired"], incarnation=incarnation
+            )
+            if not accepted:
+                continue
             if row.get("_internal"):
                 self.mappings[node] = row
 
@@ -268,16 +272,14 @@ class ObserverRuntime:
                     )
         self.task = None
 
-    async def _host_loop(self):
+    async def _host_node(self, node):
         while True:
             if self.store.generation != self.topology.inventory["generation"]:
                 self.store.reset(self.topology.inventory["generation"])
             epoch = self.store.epoch
-            for node in self.topology.nodes:
-                try:
-                    value = await self.host.read(node)
-                    if epoch != self.store.epoch:
-                        break
+            try:
+                value = await self.host.read(node)
+                if epoch == self.store.epoch:
                     if value.get("error_code"):
                         raise RuntimeError("source_unavailable")
                     scope = f"node:{node}:interfaces"
@@ -289,11 +291,18 @@ class ObserverRuntime:
                             acquired=value["acquired"],
                             incarnation=value["incarnation"],
                         )
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                if epoch == self.store.epoch:
                     self.store.health(f"node:{node}:interfaces", "source_unavailable", "unbound")
             await asyncio.sleep(1)
+
+    async def _host_loop(self):
+        async with asyncio.TaskGroup() as group:
+            for node in self.topology.nodes:
+                group.create_task(self._host_node(node))
+            await asyncio.Event().wait()
 
     async def start(self):
         await self.routing.start()
@@ -303,4 +312,5 @@ class ObserverRuntime:
         if self.task:
             self.task.cancel()
             await asyncio.gather(self.task, return_exceptions=True)
+            self.task = None
         await self.routing.close()

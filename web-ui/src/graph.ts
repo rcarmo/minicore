@@ -33,6 +33,7 @@ export class NetworkScene {
   private controls: OrbitControls;
   private observer: ResizeObserver;
   private selected: string | null = null;
+  private selectedLink: string | null = null;
   private frame = 0;
   private snapshot: TopologySnapshot | null = null;
   private yaw = -0.25;
@@ -169,6 +170,7 @@ export class NetworkScene {
       this.labels.set(node.id, label);
     }
     this.select(this.selected);
+    this.selectLink(this.selectedLink);
     this.setActivity([...this.activeIds]);
     this.setLayer(this.layer);
     this.setFaultArmed(this.faultArmed);
@@ -328,6 +330,21 @@ export class NetworkScene {
       el.dataset.selected = String(key === id);
     });
   }
+  selectLink(id: string | null) {
+    this.selectedLink = id;
+    for (const line of this.links.children) {
+      const material = (line as THREE.Line)
+        .material as THREE.LineDashedMaterial;
+      material.color.setHex(
+        line.userData.id === id
+          ? 0xf2bf78
+          : line.userData.source === this.selected ||
+              line.userData.target === this.selected
+            ? 0x5fc0bf
+            : 0x526576,
+      );
+    }
+  }
   reset() {
     this.controls.target.set(0, 0, 0);
     this.camera.position.set(0, 14, 18);
@@ -344,7 +361,7 @@ export class NetworkScene {
     );
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const hit = this.raycaster.intersectObjects(this.nodeMeshes)[0];
-    if (!hit && this.faultArmed) {
+    if (!hit) {
       this.raycaster.params.Line = { threshold: 0.15 };
       const link = this.raycaster.intersectObjects(this.links.children)[0];
       if (link) {

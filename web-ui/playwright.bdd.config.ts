@@ -5,6 +5,7 @@ export default defineConfig({
     featuresRoot: "..",
     features: [
       "../features/visualization/current_workbench.feature",
+      "../features/visualization/current_network_events.feature",
       "../features/visualization/browser_matrix.feature",
       "../features/operations/current_host_tools.feature",
       "../features/operations/current_log_collector.feature",
@@ -12,6 +13,7 @@ export default defineConfig({
     ],
     steps: [
       "e2e/current.steps.ts",
+      "e2e/network-events.steps.ts",
       "e2e/host.steps.ts",
       "e2e/management.steps.ts",
     ],

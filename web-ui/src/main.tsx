@@ -1,4 +1,6 @@
 import { render } from "preact";
+import { NetworkEvents } from "./network-events";
+import type { NetworkScope } from "./network-events-model";
 import { toolbarNavigation } from "./toolbar-navigation";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import type { ProtocolFact } from "./routing-model";
@@ -24,6 +26,12 @@ import "./styles.css";
 
 function App() {
   const [facts, setFacts] = useState<ProtocolFact[]>([]);
+  const [eventsOpen, setEventsOpen] = useState(false);
+  const [eventScope, setEventScope] = useState<NetworkScope>({
+    type: "node",
+    id: location.hash.slice(1) || "p1",
+  });
+  const [highlightLink, setHighlightLink] = useState<string | null>(null);
   const [layer, setLayer] = useState<RoutingLayer>("Physical");
   const [view, setView] = useState<ViewMode>("agent");
   const capable = useGodCapability();
@@ -79,10 +87,29 @@ function App() {
       return;
     }
     setSelectedId(id);
+    if (id) setEventScope({ type: "node", id });
+    setHighlightLink(null);
     history.replaceState(null, "", id ? `#${id}` : location.pathname);
   }
   faultAction.current = select;
-  linkAction.current = (id) => fault.target("link", id);
+  linkAction.current = (id) => {
+    if (view === "god" && fault.mode !== "inspect") {
+      fault.target("link", id);
+      return;
+    }
+    setEventScope({ type: "link", id });
+    setEventsOpen(true);
+    setHighlightLink(id);
+  };
+  const inspectEvent = (node: string, link?: string) => {
+    fault.arm("inspect");
+    setSelectedId(node);
+    setHighlightLink(link ?? null);
+    history.replaceState(null, "", `#${node}`);
+  };
+  useEffect(() => {
+    scene.current?.selectLink(highlightLink);
+  }, [highlightLink, snapshot]);
   useEffect(() => {
     scene.current?.setFaultArmed(
       view === "god" && faultCapable && fault.mode !== "inspect",
@@ -216,6 +243,12 @@ function App() {
             ))}
           </nav>
           <div class="control-group view-controls">
+            <button
+              aria-pressed={eventsOpen}
+              onClick={() => setEventsOpen((v) => !v)}
+            >
+              Network events
+            </button>
             <button onClick={() => scene.current?.reset()} title="Reset camera">
               Reset view
             </button>
@@ -376,6 +409,18 @@ function App() {
           layer={layer}
           epoch={view}
           onFacts={updateFacts}
+        />
+      )}
+      {eventsOpen && snapshot && (
+        <NetworkEvents
+          key={`${view}:${snapshot.generation}`}
+          snapshot={snapshot}
+          initialScope={eventScope}
+          onInspect={inspectEvent}
+          onClose={() => {
+            setEventsOpen(false);
+            setHighlightLink(null);
+          }}
         />
       )}
       <footer>

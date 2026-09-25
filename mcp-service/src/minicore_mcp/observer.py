@@ -441,3 +441,51 @@ def selector(topology, args):
     if args[key] not in ids or scope == "link" and args["observation"] == "routing":
         raise ValueError("invalid_observer_scope")
     return f"{scope}:{args[key]}:{args['observation']}"
+
+
+def link_snapshot(store, topology, link_id, kind):
+    link = next(link for link in topology.inventory["links"] if link["id"] == link_id)
+    result = store.snapshot(f"link:{link_id}:{kind}")
+    records = []
+    states = []
+    result["sources"] = {}
+    for endpoint in link["endpoints"]:
+        source = store.snapshot(f"node:{endpoint['node']}:{kind}")
+        states.append(source["source_health"])
+        result["sources"][endpoint["node"]] = source["source_health"]
+        for row in source["records"]:
+            if kind == "interfaces":
+                interfaces = [
+                    item | {"node_id": endpoint["node"]}
+                    for item in row["data"]["interfaces"]
+                    if item["interface"] == endpoint["interface"]
+                ]
+                if not interfaces:
+                    continue
+                data = {"interfaces": interfaces}
+            else:
+                if row["data"].get("interface") != endpoint["interface"]:
+                    continue
+                data = row["data"]
+            records.append(
+                row
+                | {
+                    "scope": result["scope"],
+                    "incarnation": endpoint["node"] + ":" + row["incarnation"],
+                    "data": data,
+                }
+            )
+    records.sort(key=lambda r: r["acquired_monotonic"])
+    result["source_health"] = (
+        "ok"
+        if states and all(s == "ok" for s in states)
+        else next((s for s in states if s != "ok"), "source_unavailable")
+    )
+    result["records"] = records[-128:]
+    result["omitted"] = max(0, len(records) - 128)
+    result["truncated"] = bool(result["omitted"] or result["source_health"] != "ok")
+    while len(encoded(result)) > 65536 and result["records"]:
+        result["records"].pop(0)
+        result["omitted"] += 1
+        result["truncated"] = True
+    return result

@@ -24,3 +24,11 @@ Feature: Share volatile source collection through a bounded Unix socket
     Given a recording bounded SSH adapter with BGP RIB FIB and neighbor replies
     When the async observer collects one router routing scope
     Then only network peer prefix and next-hop fields are stored without raw output
+
+  Scenario: Cancel runtime collection on service shutdown
+    When a management observer runtime starts and closes with no host socket
+    Then it clears all tasks and samples without blocking its caller
+
+  Scenario: A slow host reader cannot stall a different node's refresh schedule
+    When one host reader stalls while another node returns immediately
+    Then the healthy host node is collected repeatedly before the stalled reader finishes

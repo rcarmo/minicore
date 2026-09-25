@@ -7,6 +7,7 @@ from .fault_executor import FaultExecutor
 from .faults import FaultController
 from .host_faults import CombinedExecutor, HostAdapter, catalogue
 from .model import Topology
+from .observer_service import ObserverRuntime
 from .policy import Policy
 from .server import Server
 from .ssh_adapter import SSHAdapter
@@ -46,17 +47,29 @@ def main():
             "Private lab profile: reachable anonymous callers have Operator access; no individual identity."
         )
     server.browser_origin = os.environ.get("MINICORE_BROWSER_ORIGIN", "http://127.0.0.1:19000")
-    asyncio.run(
-        server.run_streamable_http_async(
-            host=os.environ.get("MINICORE_HOST", "0.0.0.0"),
-            port=int(os.environ.get("MINICORE_PORT", "9000")),
-            endpoint="/mcp",
-            allowed_origins=os.environ.get(
-                "MINICORE_ALLOWED_ORIGINS", "http://127.0.0.1:19000"
-            ).split(","),
-            max_request_bytes=2 * 1024 * 1024,
-        )
-    )
+
+    async def run():
+        observer = None
+        path = os.environ.get("MINICORE_OBSERVER_SOCKET")
+        if path:
+            observer = ObserverRuntime(topology, server.adapter, Path(path))
+            server.observer = observer.store
+            await observer.start()
+        try:
+            await server.run_streamable_http_async(
+                host=os.environ.get("MINICORE_HOST", "0.0.0.0"),
+                port=int(os.environ.get("MINICORE_PORT", "9000")),
+                endpoint="/mcp",
+                allowed_origins=os.environ.get(
+                    "MINICORE_ALLOWED_ORIGINS", "http://127.0.0.1:19000"
+                ).split(","),
+                max_request_bytes=2 * 1024 * 1024,
+            )
+        finally:
+            if observer:
+                await observer.close()
+
+    asyncio.run(run())
 
 
 if __name__ == "__main__":

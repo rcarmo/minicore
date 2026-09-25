@@ -156,3 +156,52 @@ def stripped_scope(c):
         c.router_adapter.calls
     ) == 2
     assert "secret-extra" not in json.dumps(value) and "payload" not in json.dumps(value)
+
+
+@when("a management observer runtime starts and closes with no host socket")
+def runtime_close(c):
+    async def run():
+        from minicore_mcp.observer_service import ObserverRuntime
+
+        runtime = ObserverRuntime(c.topology, None, c.root / "absent.sock")
+        await runtime.start()
+        await asyncio.sleep(0.01)
+        await runtime.close()
+        c.runtime_closed = (
+            runtime.task is None and not runtime.routing.tasks and runtime.store.record_count == 0
+        )
+
+    asyncio.run(run())
+
+
+@then("it clears all tasks and samples without blocking its caller")
+def runtime_empty(c):
+    assert c.runtime_closed
+
+
+@when("one host reader stalls while another node returns immediately")
+def independent_host(c):
+    async def run():
+        from minicore_mcp.observer_service import ObserverRuntime
+
+        runtime = ObserverRuntime(c.topology, None, c.root / "absent.sock")
+        c.fast_calls = 0
+
+        async def read(node):
+            if node == "p1":
+                await asyncio.sleep(2)
+            if node == "p2":
+                c.fast_calls += 1
+            return {"error_code": "source_unavailable", "data": None}
+
+        runtime.host.read = read
+        await runtime.start()
+        await asyncio.sleep(1.3)
+        await runtime.close()
+
+    asyncio.run(run())
+
+
+@then("the healthy host node is collected repeatedly before the stalled reader finishes")
+def independent_fast(c):
+    assert c.fast_calls >= 2, c.fast_calls

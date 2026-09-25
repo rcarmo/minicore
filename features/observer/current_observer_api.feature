@@ -31,3 +31,20 @@ Feature: Serve shared volatile observer data through HTTP MCP and SSE
   Scenario: A generation change discards the cached observer window
     When the lab generation changes before an observer read
     Then all previous records and baselines are invalidated before the response
+
+  Scenario: Link reads reuse node samples without counting receiver copies
+    Given both ends of an inventoried link have fresh interface counters
+    When Operator reads the link interface scope
+    Then each endpoint is labelled once and the original sample lifetime is preserved
+
+  Scenario: A link source failure is explicit instead of zero traffic
+    Given both ends of an inventoried link have fresh interface counters
+    And one link endpoint collection fails
+    When Operator reads the link interface scope
+    Then healthy endpoint rows remain but comparison is marked incomplete
+
+  Scenario: A partial link response names the unavailable endpoint
+    Given both ends of an inventoried link have fresh interface counters
+    And one link endpoint collection fails
+    When Operator reads the link interface scope
+    Then per-endpoint health identifies p2 as timed out and p1 as healthy

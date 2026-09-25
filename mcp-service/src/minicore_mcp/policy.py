@@ -23,6 +23,11 @@ class Policy:
         self.required_file = token_file.exists() or profile == "authenticated"
         self.invalid = False
         self.credentials: dict[str, str] = {}
+        # Redaction history is immutable, process-local and independent of auth.
+        # Never evict a secret that could still occur in retained evidence.
+        self.redaction_secrets: tuple[str, ...] = ()
+        self.redaction_blocked = False
+        self.redaction_revision = 0
         self._fingerprint: tuple[int, int, int] | None = None
         self.reload()
         if self.invalid:
@@ -42,6 +47,7 @@ class Policy:
                 raise ValueError("Credential file too large")
             credentials = json.loads(raw)
             self.validate(credentials)
+            self.remember_secrets(credentials.values())
             # Mutate in place so existing redaction views see the new credentials.
             self.credentials.clear()
             self.credentials.update(credentials)
@@ -57,6 +63,22 @@ class Policy:
             self.invalid = True
             self._fingerprint = None
             self.credentials.clear()
+
+    def remember_secrets(self, values):
+        if self.redaction_blocked:
+            return
+        combined = tuple(dict.fromkeys((*self.redaction_secrets, *values)))
+        if len(combined) > 128 or sum(len(s.encode()) for s in combined) > 64 * 1024:
+            self.redaction_blocked = True
+            self.redaction_revision += 1
+        elif combined != self.redaction_secrets:
+            self.redaction_secrets = combined
+            self.redaction_revision += 1
+
+    def redaction_context(self):
+        if self.redaction_blocked:
+            raise OSError("redaction_unavailable")
+        return self.redaction_revision, self.redaction_secrets
 
     def validate(self, credentials):
         if not isinstance(credentials, dict) or set(credentials) - {"operator", "god"}:
@@ -82,6 +104,9 @@ class Policy:
             self.required_file = clone.required_file
             self._fingerprint = clone._fingerprint
             self.invalid = clone.invalid
+            self.redaction_secrets = clone.redaction_secrets
+            self.redaction_blocked = clone.redaction_blocked
+            self.redaction_revision = clone.redaction_revision
             return self.authenticate_cached(headers)
 
     def authenticate(self, headers):

@@ -31,6 +31,8 @@ MINICORE_EXPOSURE_PROFILE=authenticated make up
 
 MCP uses Bearer. Browser Basic accepts username `operator` or `god` with the matching token. No token is stored in frontend application state. Rotate the token by replacing the token file atomically with the same service-read permissions. Malformed or removed configured files fail closed. Existing evidence streams reauthenticate before their next event. Existing bounded operations can complete; mutation callers reconcile by idempotency key.
 
+The service keeps configured token values in a process-local redaction set after rotation. Its limit is 128 values or 64 KiB. At that limit, log and configuration reads return `redaction_unavailable`, but credential changes still take effect. To recover, remove retired tokens from declared configuration and container log sources, replace retained log snapshots with sanitised data, then restart management. Do not restart merely to clear the limit while source evidence still contains old tokens: the previous redaction set is not restored after restart.
+
 Do not publish the private profile. Remote use needs TLS, authentication and source filtering.
 
 ## God toolbar and restore

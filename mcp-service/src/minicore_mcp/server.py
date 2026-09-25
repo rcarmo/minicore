@@ -99,8 +99,7 @@ class Server(AsyncMCPServer):
         self.observer: Store | None = None
         self.browser_origin = "http://127.0.0.1:19000"
         self.streams = 0
-        self.log_store = LogStore(topology, policy.credentials.values())
-        self.log_store.secrets = policy.credentials.values()
+        self.log_store = LogStore(topology, policy.redaction_secrets)
         super().__init__()
         self.streamable_http_max_sessions = 64
         self.streamable_http_request_timeout_seconds = 10
@@ -315,7 +314,7 @@ class Server(AsyncMCPServer):
             try:
                 response = await self._handle_tools_call(request_id, params, trace)
             except OSError as exc:
-                if str(exc) not in {"file_io_busy", "generation_mismatch"}:
+                if str(exc) not in {"file_io_busy", "generation_mismatch", "redaction_unavailable"}:
                     raise
                 value = self.topology.envelope(
                     str(name),
@@ -512,8 +511,20 @@ class Server(AsyncMCPServer):
     async def log_page(self, node, limit=100, cursor=None):
         reader = copy.copy(self.log_store)
         reader.topology = self.read_context()
-        reader.secrets = tuple(self.policy.credentials.values())
-        result = await self.files.run(reader.page, node, limit, cursor)
+        try:
+            revision, reader.secrets = self.policy.redaction_context()
+            result = await self.files.run(reader.page, node, limit, cursor)
+            if revision != self.policy.redaction_revision:
+                raise OSError("redaction_unavailable")
+        except OSError as exc:
+            if str(exc) != "redaction_unavailable":
+                raise
+            return self.topology.envelope(
+                "get_logs",
+                node,
+                error="redaction_unavailable",
+                data={"entries": [], "next_cursor": None, "revision": "unavailable"},
+            )
         if reader.topology.inventory["generation"] != self.topology.inventory["generation"]:
             return self.topology.envelope(
                 "get_logs",
@@ -525,14 +536,15 @@ class Server(AsyncMCPServer):
 
     async def configuration(self, node, name=None):
         topology = self.read_context()
-        result = await self.files.run(
-            baseline,
-            topology,
-            self.config_root,
-            node,
-            name,
-            tuple(self.policy.credentials.values()),
-        )
+        try:
+            revision, secrets = self.policy.redaction_context()
+            result = await self.files.run(baseline, topology, self.config_root, node, name, secrets)
+            if revision != self.policy.redaction_revision:
+                raise OSError("redaction_unavailable")
+        except OSError as exc:
+            if str(exc) != "redaction_unavailable":
+                raise
+            return 503, {"error_code": "redaction_unavailable"}
         if topology.inventory["generation"] != self.topology.inventory["generation"]:
             return 409, {"error_code": "generation_mismatch"}
         return result

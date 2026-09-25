@@ -57,6 +57,7 @@ Implemented scenarios execute via `make acceptance`: Behave for Python contracts
 | [Compare bounded routing samples with explicit provenance and freshness](../../features/planned/visualization/routing_freshness_comparison.feature) | planned | not bound | 8 |
 | [Reconcile periodic snapshots and topology notifications](../../features/planned/visualization/topology_updates.feature) | planned | not bound | 6 |
 | [Keep MCP and web responsive while filesystem operations are slow](../../features/security/async_file_io.feature) | implemented | python | 19 |
+| [Keep configured credentials out of evidence during rotation](../../features/security/credential_redaction.feature) | implemented | python | 10 |
 | [Current service access and input boundaries](../../features/security/current_access.feature) | implemented | python | 29 |
 | [Correlate bounded authorization and fixed mutation audit records](../../features/security/current_audit.feature) | implemented | python | 2 |
 | [Isolate MCP execution and cancellation between callers](../../features/security/mcp_execution_isolation.feature) | implemented | python | 12 |
@@ -288,6 +289,15 @@ Source: [features/security/async_file_io.feature](../../features/security/async_
 - L55: Repeated queued cancellations keep executor backlog bounded (1 case)
 - L59: Cancelling file shutdown still drains running work (1 case)
 - L63: Topology reads stop retrying when generations keep changing (3 cases)
+
+## Keep configured credentials out of evidence during rotation
+Source: [features/security/credential_redaction.feature](../../features/security/credential_redaction.feature) · runner: python
+
+- L7: Revoked credentials remain redacted from retained evidence (4 cases)
+- L18: Rotation during evidence collection cannot expose a newly configured token (2 cases)
+- L27: Redaction memory has a fixed fail-closed budget (2 cases)
+- L37: Invalid reload does not erase retired-secret redaction (1 case)
+- L41: Exhausted redaction publishes only unavailable log metadata on SSE (1 case)
 
 ## Current service access and input boundaries
 Source: [features/security/current_access.feature](../../features/security/current_access.feature) · runner: python

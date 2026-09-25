@@ -35,6 +35,8 @@ The topology graph is available without running nodes. Missing nodes report `nod
 
 The service rechecks redaction on read. Recognised credential assignments, `Authorization`, Bearer or Basic values, URL credentials, configured lab tokens and private-key blocks are removed. Terminal escapes are stripped. This is tested pattern-based redaction, not a guarantee for every secret format. The synthetic lab must not contain real operational secrets. Log text is rendered as text only.
 
+Credential rotation revokes authentication immediately after reload while preserving known token values for redaction during the process lifetime. The redaction set is limited to 128 values and 64 KiB. Exceeding either bound disables log and configuration reads with `redaction_unavailable`; authentication and topology remain available. A rotation during a file read also withholds that response. SSE reports unavailable metadata without log content. Redaction memory does not survive restart; remove retired credentials from source evidence before restarting.
+
 Entry IDs bind node, generation, container incarnation and message occurrence. Docker container IDs are not exposed. Re-reading a snapshot does not duplicate rows. Tail rotation can still produce identical timestamp and message pairs without a global exactly-once guarantee.
 
 ## HTTP and interaction contract

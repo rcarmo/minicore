@@ -315,12 +315,12 @@ class Server(AsyncMCPServer):
             try:
                 response = await self._handle_tools_call(request_id, params, trace)
             except OSError as exc:
-                if str(exc) != "file_io_busy":
+                if str(exc) not in {"file_io_busy", "generation_mismatch"}:
                     raise
                 value = self.topology.envelope(
                     str(name),
                     args.get("node_id") if isinstance(args, dict) else None,
-                    error="file_io_busy",
+                    error=str(exc),
                     request_id=trace,
                 )
                 response = self.create_response(
@@ -501,12 +501,13 @@ class Server(AsyncMCPServer):
         return topology
 
     async def topology_snapshot(self):
-        while True:
+        for _ in range(3):
             topology = self.read_context()
             result = await self.files.run(topology.snapshot)
             if topology.inventory["generation"] == self.topology.inventory["generation"]:
                 self.topology._snapshot = copy.deepcopy(result)
                 return result
+        raise OSError("generation_mismatch")
 
     async def log_page(self, node, limit=100, cursor=None):
         reader = copy.copy(self.log_store)
@@ -585,7 +586,13 @@ class Server(AsyncMCPServer):
             ):  # Re-authorize at least every minute; bounded per-connection lifetime.
                 if not await self.stream_authorized(headers, principal):
                     return
-                s = await self.project_topology_async(view)
+                try:
+                    s = await self.project_topology_async(view)
+                except OSError as exc:
+                    if str(exc) not in {"generation_mismatch", "file_io_busy"}:
+                        raise
+                    # No stale invalidation; reconnect starts a fresh bounded read.
+                    return
                 # Controller changes also invalidate the authorised God view.
                 revision = json.dumps([s["revision"], s.get("controller")], sort_keys=True)
                 if previous != revision:
@@ -799,8 +806,9 @@ class Server(AsyncMCPServer):
                 method=method, path=path, headers=headers, body=body, peer=peer
             )
         except OSError as exc:
-            if str(exc) == "file_io_busy":
-                return self.response(503, {"error_code": "file_io_busy"})
+            if str(exc) in {"file_io_busy", "generation_mismatch"}:
+                status = 409 if str(exc) == "generation_mismatch" else 503
+                return self.response(status, {"error_code": str(exc)})
             raise
 
     async def _handle_http(self, *, method, path, headers, body, peer):

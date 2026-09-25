@@ -59,3 +59,13 @@ Feature: Keep MCP and web responsive while filesystem operations are slow
   Scenario: Cancelling file shutdown still drains running work
     When file shutdown is cancelled while a worker is running
     Then shutdown rejects new work and waits for the running worker
+
+  Scenario Outline: Topology reads stop retrying when generations keep changing
+    When every topology read through "<surface>" overlaps another generation
+    Then the read stops within three acquisitions without publishing stale topology
+    And "<surface>" reports the generation mismatch without an internal error
+    Examples:
+      | surface |
+      | HTTP    |
+      | MCP     |
+      | SSE     |

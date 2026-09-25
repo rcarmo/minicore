@@ -562,3 +562,83 @@ def cancel_pool_shutdown(c):
 def shutdown_drained(c):
     assert c.shutdown_held and c.shutdown_cancelled and c.shutdown_admission == "file_io_busy"
     assert c.shutdown_pending == 0 and c.executor_closed
+
+
+@when('every topology read through "{surface}" overlaps another generation')
+def churn_topology(c, surface):
+    import copy
+    import json
+
+    from umcp_shared import MCPRequestContext
+
+    async def run():
+        original = c.server.files.run
+        c.churn_reads = 0
+        c.previous_snapshot = copy.deepcopy(c.topology._snapshot)
+        headers = {"authorization": "Bearer " + "o" * 40}
+
+        async def changing_read(function, *args, **kwargs):
+            result = await original(function, *args, **kwargs)
+            if function.__name__ == "snapshot":
+                c.churn_reads += 1
+                # Stop at six so the old unbounded implementation fails an
+                # assertion, not a test timeout, and cleanup always completes.
+                if c.churn_reads <= 6:
+                    c.topology.inventory["generation"] += 1
+            return result
+
+        with patch.object(c.server.files, "run", side_effect=changing_read):
+            if surface == "MCP":
+                c.churn_result = await c.server.process_request_async(
+                    json.dumps(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": 73,
+                            "method": "tools/call",
+                            "params": {"name": "get_evidence", "arguments": {"kind": "topology"}},
+                        }
+                    ),
+                    context=MCPRequestContext(transport="streamable-http", headers=headers),
+                )
+            else:
+                c.churn_result = await c.server.handle_http_request_async(
+                    method="GET",
+                    path="/api/v1/events" if surface == "SSE" else "/api/v1/topology",
+                    headers=headers,
+                    body=b"",
+                    peer="127.0.0.1",
+                )
+                if surface == "SSE":
+                    try:
+                        c.churn_event = await anext(c.churn_result.stream)
+                    except StopAsyncIteration:
+                        c.churn_event = None
+                    finally:
+                        await c.churn_result.stream.aclose()
+        c.churn_snapshot = copy.deepcopy(c.topology._snapshot)
+        c.churn_streams = c.server.streams
+
+    asyncio.run(run())
+
+
+@then("the read stops within three acquisitions without publishing stale topology")
+def churn_bounded_read(c):
+    assert 1 <= c.churn_reads <= 3, c.churn_reads
+    assert c.churn_snapshot == c.previous_snapshot
+
+
+@then('"{surface}" reports the generation mismatch without an internal error')
+def churn_response(c, surface):
+    import json
+
+    if surface == "HTTP":
+        assert c.churn_result.status == 409
+        assert json.loads(c.churn_result.body) == {"error_code": "generation_mismatch"}
+    elif surface == "MCP":
+        result = c.churn_result["result"]
+        assert result["isError"]
+        assert result["structuredContent"]["error_code"] == "generation_mismatch"
+        assert result["structuredContent"]["data"] is None
+        assert json.loads(result["content"][0]["text"]) == result["structuredContent"]
+    else:
+        assert c.churn_event is None and c.churn_streams == 0

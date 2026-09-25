@@ -798,7 +798,7 @@ def configuration_private_key_removed(c):
 
 
 @then(
-    "get_evidence exposes only topology, logs, declared configuration and bounded routing selectors"
+    "get_evidence exposes only topology, logs, declared configuration, bounded routing and observer selectors"
 )
 def evidence_discovery(c):
     tool = next((t for t in c.result["result"]["tools"] if t["name"] == "get_evidence"), None)
@@ -808,6 +808,7 @@ def evidence_discovery(c):
         "logs",
         "configuration",
         "routing",
+        "observer",
     ]
     assert tool["inputSchema"]["additionalProperties"] is False
 

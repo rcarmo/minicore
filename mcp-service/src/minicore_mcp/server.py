@@ -21,6 +21,8 @@ from .faults import SCENARIOS as FAULT_SPECS
 from .faults import FaultController
 from .logs import LogStore
 from .model import Topology
+from .observer import Store
+from .observer import selector as observer_selector
 from .policy import GOD, OPERATOR, Policy
 from .routing import collect as collect_routing
 from .routing import prefixes
@@ -44,8 +46,14 @@ INPUTS = {
     "get_evidence": schema(
         {
             "prefix": STRING,
-            "kind": {"type": "string", "enum": ["topology", "logs", "configuration", "routing"]},
+            "kind": {
+                "type": "string",
+                "enum": ["topology", "logs", "configuration", "routing", "observer"],
+            },
             "node_id": STRING,
+            "scope": {"type": "string", "enum": ["node", "link"]},
+            "observation": {"type": "string", "enum": ["interfaces", "routing", "igmp"]},
+            "link_id": STRING,
             "file": STRING,
             "limit": {"type": "integer", "minimum": 1, "maximum": 500},
             "cursor": {"type": "string", "maxLength": 256},
@@ -83,6 +91,7 @@ class Server(AsyncMCPServer):
         self.adapter: SSHAdapter | None = None
         self.controller: FaultController | None = None
         self.activity = Activity()
+        self.observer: Store | None = None
         self.browser_origin = "http://127.0.0.1:19000"
         self.streams = 0
         self.log_store = LogStore(topology, policy.credentials.values())
@@ -186,6 +195,7 @@ class Server(AsyncMCPServer):
             allowed = {
                 "topology": {"kind"},
                 "routing": {"kind", "prefix"},
+                "observer": {"kind", "scope", "node_id", "link_id", "observation"},
                 "logs": {"kind", "node_id", "limit", "cursor"},
                 "configuration": {"kind", "node_id", "file"},
             }[args["kind"]]
@@ -193,6 +203,8 @@ class Server(AsyncMCPServer):
                 args["kind"] in {"logs", "configuration"} and "node_id" not in args
             ):
                 raise ValueError("invalid_arguments")
+            if args["kind"] == "observer":
+                observer_selector(self.topology, {k: v for k, v in args.items() if k != "kind"})
             if args["kind"] == "routing" and args.get("prefix") not in prefixes(self.topology):
                 raise ValueError("invalid_prefix")
             if "file" in args and args["file"] not in {"daemons", "frr.conf", "network.json"}:
@@ -311,6 +323,11 @@ class Server(AsyncMCPServer):
             if args["kind"] == "topology":
                 result = self.topology.envelope(
                     "get_topology", data=self.project_topology("agent"), request_id=trace
+                )
+            elif args["kind"] == "observer":
+                data = self.observer_snapshot({k: v for k, v in args.items() if k != "kind"})
+                result = self.topology.envelope(
+                    "get_observer", args.get("node_id"), data=data, request_id=trace
                 )
             elif args["kind"] == "routing":
                 result = await collect_routing(
@@ -642,6 +659,43 @@ class Server(AsyncMCPServer):
         )
         return self.response(200 if not result["error_code"] else 409, result)
 
+    def observer_snapshot(self, args):
+        scope = observer_selector(self.topology, args)
+        store = self.observer
+        if store is None:
+            store = Store(self.topology.inventory["lab_id"], self.topology.inventory["generation"])
+        if store.generation != self.topology.inventory["generation"]:
+            store.reset(self.topology.inventory["generation"])
+        return store.snapshot(scope)
+
+    async def observer_events(self, headers, principal):
+        self.streams += 1
+        try:
+            previous = None
+            for _ in range(60):
+                if not self.stream_authorized(headers, principal):
+                    return
+                store = self.observer
+                if store:
+                    if store.generation != self.topology.inventory["generation"]:
+                        store.reset(self.topology.inventory["generation"])
+                    store.sweep()
+                value = {
+                    "observer_epoch": store.epoch if store else None,
+                    "generation": self.topology.inventory["generation"],
+                    "revision": store.revision if store else 0,
+                }
+                text = json.dumps(value)
+                yield (
+                    f"event: observer.changed\ndata: {text}\n\n"
+                    if text != previous
+                    else ": heartbeat\n\n"
+                ).encode()
+                previous = text
+                await asyncio.sleep(1)
+        finally:
+            self.streams -= 1
+
     async def handle_http_request_async(self, *, method, path, headers, body, peer):
         target = urlsplit(path)
         path = target.path
@@ -662,6 +716,30 @@ class Server(AsyncMCPServer):
                 {"error_code": "authentication_required"},
                 (("WWW-Authenticate", 'Basic realm="Minicore", charset="UTF-8"'),),
             )
+        if path in {"/api/v1/observer", "/api/v1/observer/events"}:
+            if path.endswith("/events"):
+                if target.query:
+                    return self.response(400, {"error_code": "invalid_arguments"})
+                if self.streams >= 16:
+                    return self.response(503, {"error_code": "stream_limit"})
+                return MCPHTTPResponse(
+                    200,
+                    content_type="text/event-stream",
+                    headers=(("Cache-Control", "no-store"),),
+                    stream=self.observer_events(headers, p),
+                )
+            try:
+                query = parse_qs(
+                    target.query, keep_blank_values=True, strict_parsing=True, max_num_fields=3
+                )
+                if any(len(v) != 1 for v in query.values()) or "kind" not in query:
+                    raise ValueError()
+                args = {k: v[0] for k, v in query.items()}
+                args["observation"] = args.pop("kind")
+                result = self.observer_snapshot(args)
+            except ValueError:
+                return self.response(400, {"error_code": "invalid_arguments"})
+            return self.response(200, result)
         if path in {"/api/v1/topology", "/api/v1/events"}:
             try:
                 query = parse_qs(

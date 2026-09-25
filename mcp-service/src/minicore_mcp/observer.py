@@ -211,6 +211,7 @@ class Store:
         self._scopes: dict[str, tuple[str, str, float]] = {}
         self._bytes = 0
         self.missed = 0
+        self.revision = 0
 
     def _scope(self, scope):
         if not isinstance(scope, str) or not SCOPES.fullmatch(scope):
@@ -221,7 +222,10 @@ class Store:
     def sweep(self):
         now = self.clock()
         # Delayed IPC may arrive out of order; expiry cannot rely on deque order.
+        before = len(self._rows)
         self._rows = deque(row for row in self._rows if 0 <= now - row[1] < 60)
+        if len(self._rows) != before:
+            self.revision += 1
         self._bytes = sum(row[3] for row in self._rows)
         self._scopes = {
             key: value for key, value in self._scopes.items() if 0 <= now - value[2] < 60
@@ -254,6 +258,8 @@ class Store:
             self._rows = deque(row for row in self._rows if row[0] != scope)
             self._bytes = sum(row[3] for row in self._rows)
         self._scopes[scope] = (incarnation, state, self.clock())
+        if not old or old[:2] != (incarnation, state):
+            self.revision += 1
 
     def put(self, scope, data, *, acquired, incarnation):
         self.sweep()
@@ -291,6 +297,7 @@ class Store:
             self._missed()
         self._rows.append((scope, acquired, payload, cost))
         self._bytes += cost
+        self.revision += 1
         return True
 
     def snapshot(self, scope, *, limit_bytes=65536):
@@ -331,6 +338,7 @@ class Store:
     def reset(self, generation):
         self.generation = generation
         self.epoch = str(uuid4())
+        self.revision += 1
         self._rows.clear()
         self._scopes.clear()
         self._bytes = 0
@@ -414,3 +422,22 @@ class Coordinator:
             self._runner = None
             self._ready.clear()
         self.store.reset(self.store.generation)
+
+
+def selector(topology, args):
+    if (
+        not isinstance(args, dict)
+        or args.get("scope") not in {"node", "link"}
+        or args.get("observation") not in {"interfaces", "routing", "igmp"}
+    ):
+        raise ValueError("invalid_observer_scope")
+    scope = args["scope"]
+    key = "node_id" if scope == "node" else "link_id"
+    if set(args) != {"scope", key, "observation"} or not isinstance(args[key], str):
+        raise ValueError("invalid_observer_scope")
+    ids = (
+        topology.nodes if scope == "node" else {link["id"] for link in topology.inventory["links"]}
+    )
+    if args[key] not in ids or scope == "link" and args["observation"] == "routing":
+        raise ValueError("invalid_observer_scope")
+    return f"{scope}:{args[key]}:{args['observation']}"

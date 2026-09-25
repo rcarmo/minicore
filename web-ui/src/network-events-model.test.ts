@@ -664,3 +664,56 @@ test("regression: conflicting acquisition identity fails validation", () => {
     ),
   ).toThrow();
 });
+
+test("regression: partial link keeps healthy source rates", () => {
+  const scope = { type: "link", id: "p1-p2" } as const;
+  const row = (t: number, p: number) => ({
+    scope: "link:p1-p2:interfaces",
+    incarnation: "p1-inc",
+    acquired_monotonic: t,
+    sampled_at: new Date(100000 + t * 1000).toISOString(),
+    remaining_ms: 50000,
+    data: {
+      interfaces: [
+        {
+          node_id: "p1",
+          interface: "eth1",
+          state: "UP",
+          tx_packets: p,
+          rx_packets: 0,
+          tx_bytes: p * 10,
+          rx_bytes: 0,
+          tx_errors: 0,
+          rx_errors: 0,
+          tx_drops: 0,
+          rx_drops: 0,
+        },
+      ],
+    },
+  });
+  const raw = {
+    ...envelope("interfaces", scope, [row(1, 10), row(6, 60)]),
+    source_health: "collection_timeout",
+    partial: true,
+    sources: { p1: "ok", p2: "collection_timeout" },
+  };
+  const current = validateObserverEnvelope(
+    raw,
+    snapshot,
+    scope,
+    "interfaces",
+    0,
+    0,
+    0,
+  );
+  const result = buildNetworkEventsModel({
+    snapshot,
+    scope,
+    kind: "interfaces",
+    current,
+    previous: null,
+    now: 1,
+  });
+  expect(result.rates[0].txPackets).toBe(10);
+  expect(result.status).toContain("Collection timed out");
+});

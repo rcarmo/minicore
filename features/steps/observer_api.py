@@ -191,7 +191,7 @@ def failed_endpoint(c):
 @then("healthy endpoint rows remain but comparison is marked incomplete")
 def link_partial(c):
     data = json.loads(c.obs_http.body)
-    assert data["source_health"] != "ok" and data["truncated"] and data["records"], data
+    assert data["source_health"] != "ok" and data["partial"] and data["records"], data
 
 
 @then("per-endpoint health identifies p2 as timed out and p1 as healthy")

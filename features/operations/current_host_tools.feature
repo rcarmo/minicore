@@ -82,3 +82,9 @@ Feature: Generate and manage the declared containers from the host only
   Scenario: Build dependencies resolve through exact release version locks
     Then management and router Dockerfiles use checked-in exact APK version locks
     And development Python installation uses a fully version-pinned release lock
+
+  Scenario: Management observer memory cannot spill through swap or core dumps
+    Then generated management settings disable core dumps and set swap allowance equal to its memory limit
+
+  Scenario: Counter-only and IGMP services cannot replace each other's active socket
+    Then observer service launchers reject a concurrently active peer service

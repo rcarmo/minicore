@@ -4,7 +4,9 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 case "${1:-}" in
  start|restart)
   # Same socket, never run both services concurrently.
-  systemctl --user stop minicore-observer.service || true
+  if systemctl --user cat minicore-observer.service >/dev/null 2>&1; then
+    systemctl --user stop minicore-observer.service
+  fi
   sudo install -d -o "$(id -u)" -g 10001 -m 2770 "$root/runtime/observer-socket"
   file=$(mktemp)
   trap 'rm -f "$file"' EXIT

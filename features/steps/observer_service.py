@@ -338,3 +338,108 @@ def independent_health(c):
         c.interfaces_runtime["source_health"] == "ok"
         and c.igmp_runtime["source_health"] == "source_unavailable"
     ), (c.interfaces_runtime, c.igmp_runtime)
+
+
+@when("routing collection spans a host mapping replacement")
+def routing_incarnation(c):
+    from minicore_mcp.observer_service import ObserverRuntime
+
+    async def run():
+        runtime = ObserverRuntime(c.topology, None, c.root / "unused.sock")
+        assert hasattr(runtime, "collect_routing_node"), (
+            "routing source incarnation gate is missing"
+        )
+        sample = {"interfaces": [{"interface": "to-p2", "state": "UP"}]}
+        runtime.store.put(
+            "node:p1:interfaces", sample, acquired=runtime.store.clock(), incarnation="first"
+        )
+
+        class Adapter:
+            async def execute(self, *args):
+                runtime.store.put(
+                    "node:p1:interfaces",
+                    sample,
+                    acquired=runtime.store.clock(),
+                    incarnation="replacement",
+                )
+                prefix = args[1]["prefix"]
+                return {
+                    "error_code": None,
+                    "data": {
+                        "prefix": prefix,
+                        "bgp": {"paths": []},
+                        "rib": {},
+                        "fib": [],
+                        "bgp_peers": {},
+                        "ospf_neighbors": {},
+                    },
+                }
+
+        runtime.adapter = Adapter()
+        try:
+            await runtime.collect_routing_node("p1")
+        except ValueError as exc:
+            c.mapping_rejected = str(exc)
+        else:
+            c.mapping_rejected = None
+
+    asyncio.run(run())
+
+
+@then("the result is discarded rather than attached to the replacement router")
+def mapping_gate(c):
+    assert c.mapping_rejected == "source_changed", c.mapping_rejected
+
+
+@when("a host snapshot contains old IGMP reports but marks capture unavailable")
+def import_failed_igmp(c):
+    async def run():
+        from minicore_mcp.observer_service import ObserverRuntime
+
+        runtime = ObserverRuntime(c.topology, None, c.root / "unused.sock")
+        acquired = runtime.store.clock()
+
+        async def read(node, kind="interfaces"):
+            if kind == "interfaces":
+                return {
+                    "error_code": None,
+                    "data": {"interfaces": []},
+                    "acquired": acquired,
+                    "incarnation": "interface",
+                }
+            return {
+                "observer_epoch": "host",
+                "source_incarnation": "capture",
+                "scope": f"node:{node}:igmp",
+                "source_health": "source_unavailable",
+                "records": [
+                    {
+                        "incarnation": "capture",
+                        "acquired_monotonic": acquired,
+                        "data": {
+                            "version": 2,
+                            "message_type": "report_v2",
+                            "group": "239.1.1.1",
+                            "reporter": "10.200.1.2",
+                            "querier": None,
+                            "sources": [],
+                            "records": [],
+                        },
+                    }
+                ],
+            }
+
+        runtime.host.read = read
+        await runtime.start()
+        await asyncio.sleep(0.02)
+        c.failed_import = runtime.store.snapshot("node:p1:igmp")
+        await runtime.close()
+
+    asyncio.run(run())
+
+
+@then("management keeps the report timestamps and source unavailable status")
+def import_keeps_failure(c):
+    assert (
+        c.failed_import["source_health"] == "source_unavailable" and c.failed_import["records"]
+    ), c.failed_import

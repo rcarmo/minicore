@@ -118,6 +118,7 @@ export interface ValidatedEnvelope {
   omitted: number;
   records: ValidatedRecord[];
   sources?: Record<string, SourceHealth>;
+  captureErrors?: Record<string, number>;
 }
 
 export interface ObserverEnvelope {
@@ -443,6 +444,30 @@ export function validateObserverEnvelope(
     truncated: raw.truncated,
     omitted: raw.omitted,
     records: validated,
+    captureErrors: (() => {
+      const data =
+        (raw as unknown as { capture_errors?: Record<string, unknown> })
+          .capture_errors ?? {};
+      if (Object.keys(data).length > 8) throw Error("Invalid source counters");
+      return Object.fromEntries(
+        Object.entries(data).map(([name, value]) => {
+          if (
+            ![
+              "expired",
+              "overflow",
+              "parse",
+              "truncated",
+              "checksum_partial",
+              "socket_unavailable",
+              "kernel_drops",
+              "rate_limit",
+            ].includes(name)
+          )
+            throw Error("Invalid source counter");
+          return [name, asInteger(value, "source loss")];
+        }),
+      );
+    })(),
     sources: (() => {
       const value = (raw as unknown as { sources?: unknown }).sources;
       if (value === undefined) return undefined;
@@ -601,7 +626,14 @@ export function buildNetworkEventsModel({
     const r = samples[index],
       old = priorBySource.get(r.incarnation);
     priorBySource.set(r.incarnation, r);
-    const canCompare = healthy && pair(old, r);
+    const ownHealth =
+      r.kind === "interfaces" && scope.type === "link" && current?.sources
+        ? r.data.interfaces.every(
+            (i) => !!i.node_id && current!.sources![i.node_id] === "ok",
+          )
+        : healthy;
+    const canCompare =
+      ownHealth && !current?.truncated && !current?.omitted && pair(old, r);
     if (r.kind === "routing") {
       const before = canCompare && old?.kind === "routing" ? old.data : null;
       const peers = new Map(

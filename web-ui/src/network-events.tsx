@@ -438,6 +438,16 @@ export function NetworkEvents({
               ))}
             </p>
           )}
+          {current?.captureErrors &&
+            Object.keys(current.captureErrors).length > 0 && (
+              <p class="source-loss">
+                {Object.entries(current.captureErrors).map(([name, count]) => (
+                  <span>
+                    {name.replaceAll("_", " ")}: {count}{" "}
+                  </span>
+                ))}
+              </p>
+            )}
           <Sparkline model={model} />
           {model.rates.length > 0 && (
             <table class="event-rates">

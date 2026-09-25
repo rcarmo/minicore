@@ -32,3 +32,19 @@ Feature: Verify read-only observer host sources against the local lab
     Given the IGMP-only host observer is enabled
     When a temporary identical filtered tap receives synthetic UDP OSPF and IGMP
     Then only the IGMP transmission is delivered by the kernel
+
+  Scenario: The shared async listener stays responsive during observer collection
+    When simultaneous HTTP and MCP clients read while the observer collects
+    Then all reads finish within the bounded local budget without returning raw packets
+
+  Scenario: Restart begins an empty IGMP window and closes old sockets
+    Given the IGMP-only host observer is enabled
+    When a report is observed and the capture service is restarted
+    Then the report disappears under a new source epoch and socket count stays bounded
+
+  Scenario: Management retention cannot spill through container swap or core dumps
+    Then the running management container has no swap allowance and core dumps are disabled
+
+  Scenario: Quiet IGMP captures report no recent records without retaining a traffic history
+    Given the IGMP-only host observer is enabled
+    Then current runtime storage contains only observer sockets and no packet files

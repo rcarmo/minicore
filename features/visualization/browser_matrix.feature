@@ -11,3 +11,9 @@ Feature: Cross-browser accessible evidence workbench
 
   Scenario: Keep header controls grouped and reachable on tablets
     Then the header replaces generation with God mode and keeps all controls inline with accessible touch targets
+
+  Scenario: Network events remain read-only across browser engines
+    Then the network events panel scopes rows highlights a node and never mutates the lab
+
+  Scenario: Paused network events expire across browser engines
+    Then an expired event disappears while paused and failed refreshes cannot restore it

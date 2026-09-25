@@ -540,3 +540,36 @@ Then(
     );
   },
 );
+
+Then(
+  "generated management settings disable core dumps and set swap allowance equal to its memory limit",
+  async () => {
+    const compose = JSON.parse(
+      await readFile(join(root, "compose/compose.json"), "utf8"),
+    );
+    const service = compose.services.management;
+    expect(service.memswap_limit).toBe(service.mem_limit);
+    expect(service.ulimits.core).toEqual({ soft: 0, hard: 0 });
+  },
+);
+Then(
+  "observer service launchers reject a concurrently active peer service",
+  async () => {
+    const counter = await readFile(
+      join(root, "scripts/observer-service.sh"),
+      "utf8",
+    );
+    const capture = await readFile(
+      join(root, "scripts/observer-capture-service.sh"),
+      "utf8",
+    );
+    expect(counter).toContain(
+      "systemctl is-active --quiet minicore-observer-capture.service",
+    );
+    expect(counter).toContain("Stop IGMP capture before starting counters");
+    expect(capture).toContain(
+      "systemctl --user stop minicore-observer.service",
+    );
+    expect(capture).not.toContain("stop minicore-observer.service || true");
+  },
+);

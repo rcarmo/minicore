@@ -332,3 +332,121 @@ asyncio.run(run())
 @then("only the IGMP transmission is delivered by the kernel")
 def only_kernel_igmp(c):
     assert c.kernel_protocols == [2], c.kernel_protocols
+
+
+@when("simultaneous HTTP and MCP clients read while the observer collects")
+def concurrent_listener(c):
+    import time
+
+    import httpx
+
+    async def run():
+        async with httpx.AsyncClient(timeout=8) as client:
+            started = time.monotonic()
+
+            async def request(index):
+                begin = time.monotonic()
+                if index % 3 == 0:
+                    r = await client.post(
+                        "http://127.0.0.1:19000/mcp",
+                        headers={
+                            "MCP-Protocol-Version": "2025-03-26",
+                            "Accept": "application/json, text/event-stream",
+                        },
+                        json={"jsonrpc": "2.0", "id": index, "method": "ping"},
+                    )
+                    assert r.status_code == 200 and r.json()["result"] == {}, r.text
+                else:
+                    kind = "interfaces" if index % 3 == 1 else "routing"
+                    r = await client.get(
+                        "http://127.0.0.1:19000/api/v1/observer?scope=node&node_id=p1&kind=" + kind
+                    )
+                    assert (
+                        r.status_code == 200
+                        and len(r.content) <= 65536
+                        and "raw_evidence" not in r.text
+                    ), r.text
+                return time.monotonic() - begin
+
+            latencies = await asyncio.gather(*(request(i) for i in range(18)))
+            return latencies, time.monotonic() - started
+
+    c.observer_latencies, c.observer_elapsed = asyncio.run(run())
+
+
+@then("all reads finish within the bounded local budget without returning raw packets")
+def concurrent_done(c):
+    assert (
+        len(c.observer_latencies) == 18 and max(c.observer_latencies) < 5 and c.observer_elapsed < 8
+    ), c.observer_latencies
+
+
+@when("a report is observed and the capture service is restarted")
+def restart_capture_live(c):
+    import subprocess
+    import time
+
+    import httpx
+
+    live_report(c)
+    live_report_found(c)
+    before = httpx.get(
+        "http://127.0.0.1:19000/api/v1/observer?scope=node&node_id=ce1&kind=igmp", timeout=5
+    ).json()
+    c.before_capture_inc = before["source_incarnation"]
+    value = subprocess.run(
+        ["sudo", "systemctl", "restart", "minicore-observer-capture.service"],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert value.returncode == 0, value.stderr
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        after = httpx.get(
+            "http://127.0.0.1:19000/api/v1/observer?scope=node&node_id=ce1&kind=igmp", timeout=5
+        ).json()
+        if after["source_incarnation"] != c.before_capture_inc and after["source_health"] == "ok":
+            c.after_capture = after
+            break
+        time.sleep(0.5)
+    else:
+        raise AssertionError(after)
+
+
+@then("the report disappears under a new source epoch and socket count stays bounded")
+def restart_capture_empty(c):
+    import subprocess
+
+    assert not any(
+        r["acquired_monotonic"] == c.igmp_acquired for r in c.after_capture["records"]
+    ), c.after_capture
+    pid = subprocess.check_output(
+        ["systemctl", "show", "minicore-observer-capture.service", "-p", "MainPID", "--value"],
+        text=True,
+    ).strip()
+    descriptors = list(Path("/proc/" + pid + "/fd").iterdir())
+    assert len(descriptors) <= 64, len(descriptors)
+    assert {p.name for p in (ROOT / "runtime/observer-socket").iterdir()} == {"counters.sock"}
+
+
+@then("the running management container has no swap allowance and core dumps are disabled")
+def management_memory_only(c):
+    import subprocess
+
+    data = json.loads(
+        subprocess.check_output(["docker", "inspect", "minicore-management-1"], text=True)
+    )[0]["HostConfig"]
+    assert (
+        data["MemorySwap"] == data["Memory"] > 0
+        and {"Name": "core", "Hard": 0, "Soft": 0} in data["Ulimits"]
+    ), data
+
+
+@then("current runtime storage contains only observer sockets and no packet files")
+def no_packet_files(c):
+    # The only observer-owned runtime directory holds the socket, no snapshots.
+    path = ROOT / "runtime/observer-socket"
+    assert {p.name for p in path.iterdir()} == {"counters.sock"}
+    assert (path / "counters.sock").is_socket()
+    assert not list(path.rglob("*.pcap")) and not list(path.rglob("*.pcapng"))

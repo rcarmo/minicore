@@ -304,9 +304,22 @@ class ObserverRuntime:
                 if node["kind"] == "router":
                     self.routing.add(
                         f"node:{node['id']}:routing",
-                        lambda node=node: collect_router(topology, adapter, node["id"]),
+                        lambda node=node: self.collect_routing_node(node["id"]),
                     )
         self.task = None
+
+    async def collect_routing_node(self, node):
+        before = self.store.snapshot(f"node:{node}:interfaces")
+        if before["source_health"] != "ok" or not before["source_incarnation"]:
+            raise ValueError("source_unavailable")
+        data, _ = await collect_router(self.topology, self.adapter, node)
+        after = self.store.snapshot(f"node:{node}:interfaces")
+        if (
+            before["source_incarnation"] != after["source_incarnation"]
+            or after["source_health"] != "ok"
+        ):
+            raise ValueError("source_changed")
+        return data, before["source_incarnation"]
 
     async def _host_node(self, node):
         while True:
@@ -353,6 +366,8 @@ class ObserverRuntime:
                                 acquired=row["acquired_monotonic"],
                                 incarnation=incarnation,
                             )
+                    self.store.health(scope, igmp["source_health"], incarnation)
+                    self.store.import_loss(scope, igmp.get("loss_buckets", []))
             except asyncio.CancelledError:
                 raise
             except Exception:

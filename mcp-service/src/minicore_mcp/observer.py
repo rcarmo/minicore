@@ -213,6 +213,8 @@ class Store:
         self.missed = 0
         self.revision = 0
         self._groups: dict[str, float] = {}
+        self._loss: dict[str, dict[str, int]] = {}
+        self._loss_buckets: dict[str, list[tuple[float, dict[str, int]]]] = {}
 
     def _scope(self, scope):
         if not isinstance(scope, str) or not SCOPES.fullmatch(scope):
@@ -229,6 +231,20 @@ class Store:
             self.revision += 1
         self._bytes = sum(row[3] for row in self._rows)
         self._groups = {g: t for g, t in self._groups.items() if 0 <= now - t < 60}
+        self._loss_buckets = {
+            scope: [bucket for bucket in buckets if 0 <= now - bucket[0] < 60]
+            for scope, buckets in self._loss_buckets.items()
+        }
+        self._loss_buckets = {
+            scope: buckets for scope, buckets in self._loss_buckets.items() if buckets
+        }
+        self._loss = {}
+        for scope, buckets in self._loss_buckets.items():
+            total: dict[str, int] = {}
+            for _, counts in buckets:
+                for reason, count in counts.items():
+                    total[reason] = min(2**53 - 1, total.get(reason, 0) + count)
+            self._loss[scope] = total
         self._scopes = {
             key: value for key, value in self._scopes.items() if 0 <= now - value[2] < 60
         }
@@ -245,6 +261,68 @@ class Store:
 
     def _missed(self):
         self.missed = min((1 << 53) - 1, self.missed + 1)
+
+    def drop(self, scope, reason, count=1):
+        self._scope(scope)
+        if reason not in {
+            "expired",
+            "overflow",
+            "parse",
+            "truncated",
+            "checksum_partial",
+            "socket_unavailable",
+            "kernel_drops",
+            "rate_limit",
+        }:
+            raise ValueError("invalid_loss_reason")
+        integer(count, 2**53 - 1)
+        if len(self._loss) >= 128 and scope not in self._loss:
+            raise ValueError("scope_limit")
+        stamp = math.floor(self.clock())
+        buckets = self._loss_buckets.setdefault(scope, [])
+        if not buckets or buckets[-1][0] != stamp:
+            buckets.append((stamp, {}))
+        counts = buckets[-1][1]
+        counts[reason] = min(2**53 - 1, counts.get(reason, 0) + count)
+        self.missed = min(2**53 - 1, self.missed + count)
+        self.revision += 1
+        self.sweep()
+
+    def import_loss(self, scope, buckets):
+        self._scope(scope)
+        if not isinstance(buckets, list) or len(buckets) > 60:
+            raise ValueError("invalid_loss")
+        clean = []
+        for bucket in buckets:
+            if not isinstance(bucket, dict) or set(bucket) != {"acquired_monotonic", "counts"}:
+                raise ValueError("invalid_loss")
+            stamp = bucket["acquired_monotonic"]
+            counts = bucket["counts"]
+            if (
+                type(stamp) not in {int, float}
+                or not math.isfinite(stamp)
+                or stamp > self.clock()
+                or not isinstance(counts, dict)
+                or len(counts) > 8
+            ):
+                raise ValueError("invalid_loss")
+            for reason, count in counts.items():
+                if reason not in {
+                    "expired",
+                    "overflow",
+                    "parse",
+                    "truncated",
+                    "checksum_partial",
+                    "socket_unavailable",
+                    "kernel_drops",
+                    "rate_limit",
+                }:
+                    raise ValueError("invalid_loss_reason")
+                integer(count, 2**53 - 1)
+            if 0 <= self.clock() - stamp < 60:
+                clean.append((stamp, dict(counts)))
+        self._loss_buckets[scope] = clean
+        self.sweep()
 
     def health(self, scope, state, incarnation):
         self.sweep()
@@ -273,7 +351,7 @@ class Store:
         ):
             raise ValueError("invalid_acquisition_time")
         if acquired < self.not_before or self.clock() - acquired >= 60:
-            self._missed()
+            self.drop(scope, "expired")
             return False
         kind = scope.rsplit(":", 1)[-1]
         validate(kind, data)
@@ -281,7 +359,7 @@ class Store:
             groups = {data["group"]} if data.get("group") else set()
             groups.update(row["group"] for row in data["records"])
             if len(set(self._groups) | groups) > 256:
-                self._missed()
+                self.drop(scope, "overflow")
                 return False
             for group in groups:
                 self._groups[group] = acquired
@@ -298,14 +376,14 @@ class Store:
         payload = encoded(row)
         cost = sys.getsizeof(payload) + sys.getsizeof(scope) + 256
         if len(payload) > 60000 or cost > self.max_bytes:
-            self._missed()
+            self.drop(scope, "overflow")
             return False
         while self._rows and (
             len(self._rows) >= self.max_records or self._bytes + cost > self.max_bytes
         ):
             old = self._rows.popleft()
             self._bytes -= old[3]
-            self._missed()
+            self.drop(old[0], "overflow")
         self._rows.append((scope, acquired, payload, cost))
         self._bytes += cost
         self._scopes[scope] = (incarnation, "ok", acquired)
@@ -327,7 +405,12 @@ class Store:
             "window_seconds": 60,
             "source_health": self._scopes.get(scope, (None, "source_unavailable"))[1],
             "source_incarnation": self._scopes.get(scope, (None,))[0],
-            "missed_updates": self.missed,
+            "missed_updates": sum(self._loss.get(scope, {}).values()),
+            "capture_errors": dict(self._loss.get(scope, {})),
+            "loss_buckets": [
+                {"acquired_monotonic": stamp, "counts": counts}
+                for stamp, counts in self._loss_buckets.get(scope, [])
+            ],
             "truncated": False,
             "omitted": 0,
             "records": [],
@@ -363,6 +446,8 @@ class Store:
         self._rows.clear()
         self._scopes.clear()
         self._groups.clear()
+        self._loss.clear()
+        self._loss_buckets.clear()
         self._bytes = 0
         self.missed = 0
 
@@ -471,9 +556,14 @@ def link_snapshot(store, topology, link_id, kind):
     records = []
     states = []
     result["sources"] = {}
+    result["capture_errors"] = {}
+    result["missed_updates"] = 0
     for endpoint in link["endpoints"]:
         source = store.snapshot(f"node:{endpoint['node']}:{kind}")
         states.append(source["source_health"])
+        result["missed_updates"] += source["missed_updates"]
+        for reason, count in source.get("capture_errors", {}).items():
+            result["capture_errors"][reason] = result["capture_errors"].get(reason, 0) + count
         result["sources"][endpoint["node"]] = source["source_health"]
         for row in source["records"]:
             if kind == "interfaces":
@@ -505,7 +595,8 @@ def link_snapshot(store, topology, link_id, kind):
     )
     result["records"] = records[-128:]
     result["omitted"] = max(0, len(records) - 128)
-    result["truncated"] = bool(result["omitted"] or result["source_health"] != "ok")
+    result["partial"] = result["source_health"] != "ok"
+    result["truncated"] = bool(result["omitted"])
     while len(encoded(result)) > 65536 and result["records"]:
         result["records"].pop(0)
         result["omitted"] += 1

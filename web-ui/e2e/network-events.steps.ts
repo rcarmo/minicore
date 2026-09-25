@@ -359,3 +359,16 @@ Then(
     await expect(panel).not.toContainText("source_health=");
   },
 );
+Then(
+  "a partial link keeps matching healthy source rates and labels the failed source",
+  async () => {
+    const result = await run([
+      "bun",
+      "test",
+      "src/network-events-model.test.ts",
+      "--test-name-pattern",
+      "regression: partial link",
+    ]);
+    expect(result.code, result.text).toBe(0);
+  },
+);

@@ -379,3 +379,33 @@ def age_interface(c):
 def source_aged(c):
     data = c.store.snapshot("node:p1:interfaces")
     assert data["records"] and data["source_health"] == "collection_timeout", data
+
+
+@when("IGMP capture drops one record on p1")
+def scoped_loss(c):
+    assert hasattr(c.store, "drop"), "scoped loss reporting unavailable"
+    c.store.drop("node:p1:igmp", "kernel_drops", 3)
+
+
+@then("p1 IGMP reports the loss reason and p2 interface counters report no missed updates")
+def loss_attribution(c):
+    affected = c.store.snapshot("node:p1:igmp")
+    other = c.store.snapshot("node:p2:interfaces")
+    assert affected["missed_updates"] == 3 and affected["capture_errors"] == {"kernel_drops": 3}, (
+        affected
+    )
+    assert other["missed_updates"] == 0 and other["capture_errors"] == {}, other
+
+
+@when("three IGMP drops are followed by one new drop fifty seconds later")
+def drop_times(c):
+    c.store.drop("node:p1:igmp", "kernel_drops", 3)
+    c.now = 150
+    c.store.drop("node:p1:igmp", "kernel_drops", 1)
+    c.now = 160
+
+
+@then("after sixty seconds only the new drop remains in the source window")
+def drop_expiry(c):
+    value = c.store.snapshot("node:p1:igmp")
+    assert value["missed_updates"] == 1 and value["capture_errors"] == {"kernel_drops": 1}, value

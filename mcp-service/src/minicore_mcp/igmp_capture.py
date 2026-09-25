@@ -82,19 +82,19 @@ class Capture:
         self._budget_second = -1
         self._budget_count = 0
 
-    def _error(self, code):
-        self.errors[code] = min(2**53 - 1, self.errors[code] + 1)
-        self.store._missed()
+    def _error(self, code, node, count=1):
+        self.errors[code] = min(2**53 - 1, self.errors[code] + count)
+        self.store.drop(f"node:{node}:igmp", code, count)
 
     def ingest(self, binding, raw, *, acquired, checksum_partial, truncated):
         if truncated:
-            self._error("truncated")
+            self._error("truncated", binding["node"])
             return
         if checksum_partial:
-            self._error("checksum_partial")
+            self._error("checksum_partial", binding["node"])
             return
         if not 0 <= self.clock() - acquired < 60:
-            self._error("expired")
+            self._error("expired", binding["node"])
             return
         second = int(self.clock())
         if self._budget_second != second:
@@ -102,7 +102,7 @@ class Capture:
             self._budget_count = 0
         self._budget_count += 1
         if self._budget_count > 1024:
-            self._error("rate_limit")
+            self._error("rate_limit", binding["node"])
             return
         try:
             value = parse_igmp_ethernet_frame(raw, checksum_policy="verified")
@@ -114,7 +114,7 @@ class Capture:
                 incarnation=binding["incarnation"],
             )
         except (IGMPParseError, ValueError):
-            self._error("parse")
+            self._error("parse", binding["node"])
 
     def _ready(self, key):
         if key not in self.taps:
@@ -127,7 +127,7 @@ class Capture:
             except BlockingIOError:
                 return
             except OSError:
-                self._error("socket_unavailable")
+                self._error("socket_unavailable", binding["node"])
                 self._close(key)
                 return
             if len(address) < 3 or address[2] == 4:
@@ -142,7 +142,7 @@ class Capture:
                     partial = bool(struct.unpack_from("I", data)[0] & 8)
             age = (time.time_ns() - wall_ns) / 1e9 if wall_ns is not None else None
             if age is None or age < -0.01 or age >= 60:
-                self._error("expired")
+                self._error("expired", binding["node"])
                 continue
             self.ingest(
                 binding,
@@ -181,7 +181,7 @@ class Capture:
                 self.taps[key] = (sock, binding)
                 asyncio.get_running_loop().add_reader(sock.fileno(), self._ready, key)
             except (OSError, ValueError):
-                self._error("socket_unavailable")
+                self._error("socket_unavailable", binding["node"])
         nodes = {b["node"]: b["incarnation"] for b in bindings}
         for scope in list(self.store._scopes):
             if scope.endswith(":igmp") and scope.split(":")[1] not in nodes:
@@ -194,16 +194,13 @@ class Capture:
             )
 
     def poll_stats(self):
-        for sock, _ in self.taps.values():
+        for sock, binding in self.taps.values():
             try:
                 _, dropped = struct.unpack("II", sock.getsockopt(SOL_PACKET, PACKET_STATISTICS, 8))
                 if dropped:
-                    self.errors["kernel_drops"] = min(
-                        2**53 - 1, self.errors["kernel_drops"] + dropped
-                    )
-                    self.store._missed()
+                    self._error("kernel_drops", binding["node"], dropped)
             except OSError:
-                self._error("socket_unavailable")
+                self._error("socket_unavailable", binding["node"])
 
     def close(self):
         for key in list(self.taps):

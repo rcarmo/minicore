@@ -37,3 +37,6 @@ Feature: Volatile network events panel
 
   Scenario: Show which link endpoint is unavailable
     Then a partial link response names the failed endpoint with a plain status message
+
+  Scenario: A failed endpoint does not erase the healthy endpoint's rate
+    Then a partial link keeps matching healthy source rates and labels the failed source

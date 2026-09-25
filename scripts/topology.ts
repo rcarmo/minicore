@@ -140,6 +140,8 @@ export function compose(t: Topology) {
     security_opt: ["no-new-privileges:true"],
     pids_limit: 64,
     mem_limit: "256m",
+    memswap_limit: "256m",
+    ulimits: { core: { soft: 0, hard: 0 } },
     cpus: 1,
     tmpfs: ["/tmp:size=16m,mode=1777"],
     environment: {

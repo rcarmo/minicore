@@ -46,3 +46,11 @@ Feature: Share volatile source collection through a bounded Unix socket
   Scenario: IGMP read failure cannot leave a healthy IGMP status
     When interfaces succeed but the IGMP source fails after a successful report
     Then interface health stays healthy and IGMP health becomes unavailable
+
+  Scenario: Routing comparison identity follows the mapped container incarnation
+    When routing collection spans a host mapping replacement
+    Then the result is discarded rather than attached to the replacement router
+
+  Scenario: Retained IGMP reports preserve their source failure on import
+    When a host snapshot contains old IGMP reports but marks capture unavailable
+    Then management keeps the report timestamps and source unavailable status

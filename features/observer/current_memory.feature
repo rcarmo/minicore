@@ -71,3 +71,13 @@ Feature: Retain only bounded recent observer records in memory
     Given an observer with a controllable monotonic clock
     When an interface source stops updating for more than three seconds
     Then its retained rows stay timestamped but source health is delayed
+
+  Scenario: Loss counters belong only to the affected observation scope
+    Given an observer with a controllable monotonic clock
+    When IGMP capture drops one record on p1
+    Then p1 IGMP reports the loss reason and p2 interface counters report no missed updates
+
+  Scenario: Repeated errors cannot extend the age of earlier loss counts
+    Given an observer with a controllable monotonic clock
+    When three IGMP drops are followed by one new drop fifty seconds later
+    Then after sixty seconds only the new drop remains in the source window

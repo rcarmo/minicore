@@ -3,6 +3,10 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 case "${1:-}" in
  start|restart)
+  if systemctl is-active --quiet minicore-observer-capture.service; then
+    echo 'Stop IGMP capture before starting counters' >&2
+    exit 1
+  fi
   sudo install -d -o "$(id -u)" -g 10001 -m 2770 "$root/runtime/observer-socket"
   mkdir -p "$HOME/.config/systemd/user"
   cat > "$HOME/.config/systemd/user/minicore-observer.service" <<UNIT

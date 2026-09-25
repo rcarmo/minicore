@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from aioumcp import AsyncMCPServer
-from umcp_shared import MCPHTTPResponse, get_request_context
+from umcp_shared import MCPAuthenticationBusy, MCPHTTPResponse, get_request_context
 
 from .activity import Activity
 from .configuration import baseline
@@ -121,11 +121,23 @@ class Server(AsyncMCPServer):
             request = {}
         if isinstance(request, dict) and request.get("method") == "tools/list":
             headers = context.headers if context else get_request_context().headers
-            if await self.policy.authenticate_async(headers, self.auth_files) is None:
+            try:
+                principal = await self.policy.authenticate_async(headers, self.auth_files)
+            except MCPAuthenticationBusy:
+                return self.create_response(
+                    request.get("id"), error=self.create_error(-32000, "file_io_busy")
+                )
+            if principal is None:
                 return self.create_response(
                     request.get("id"), error=self.create_error(-32001, "authorization_denied")
                 )
-        return await super().process_request_async(raw_message, context=context)
+        try:
+            return await super().process_request_async(raw_message, context=context)
+        except MCPAuthenticationBusy:
+            return self.create_response(
+                request.get("id") if isinstance(request, dict) else None,
+                error=self.create_error(-32000, "file_io_busy"),
+            )
 
     async def close_files(self):
         await self.files.close()
@@ -584,10 +596,13 @@ class Server(AsyncMCPServer):
         return snapshot
 
     async def stream_authorized(self, headers, principal):
-        return (
-            headers is None
-            or await self.policy.authenticate_async(headers, self.auth_files) == principal
-        )
+        try:
+            return (
+                headers is None
+                or await self.policy.authenticate_async(headers, self.auth_files) == principal
+            )
+        except MCPAuthenticationBusy:
+            return False
 
     async def events(self, view="agent", headers=None, principal=None):
         previous = None

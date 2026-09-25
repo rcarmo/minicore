@@ -22,6 +22,10 @@ SINGLETON_HTTP_HEADERS = frozenset({
     "transfer-encoding",
 })
 
+class MCPAuthenticationBusy(OSError):
+    """Authentication admission exhausted; deny access with a temporary 503."""
+
+
 @dataclass(frozen=True, slots=True)
 class MCPPrincipal:
     name: str

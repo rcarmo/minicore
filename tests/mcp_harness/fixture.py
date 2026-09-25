@@ -20,6 +20,28 @@ class DelayedServer(Server):
 
     async def handle_http_request_async(self, **request):
         path = request["path"]
+        if path == "/fixture/auth-fill":
+            if not hasattr(self, "auth_fill"):
+                self.auth_gate = asyncio.Event()
+                self.auth_run = self.auth_files.run
+
+                async def blocked(*args, **kwargs):
+                    await self.auth_gate.wait()
+                    return await self.auth_run(*args, **kwargs)
+
+                self.auth_files.run = blocked
+                self.auth_fill = [
+                    asyncio.create_task(self.policy.authenticate_async({}, self.auth_files))
+                    for _ in range(32)
+                ]
+                await asyncio.sleep(0)
+            return self.response(200, {"filled": True})
+        if path == "/fixture/auth-release":
+            self.auth_gate.set()
+            await asyncio.gather(*self.auth_fill)
+            self.auth_files.run = self.auth_run
+            del self.auth_fill
+            return self.response(200, {"released": True})
         if path == "/fixture/slow-file":
             if not self.slow_installed:
                 original = self.log_store.page

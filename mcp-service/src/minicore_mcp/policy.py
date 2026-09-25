@@ -7,7 +7,7 @@ import hmac
 import json
 from pathlib import Path
 
-from umcp_shared import MCPPrincipal
+from umcp_shared import MCPAuthenticationBusy, MCPPrincipal
 
 OPERATOR = {"list_nodes", "get_interfaces", "get_routes", "get_neighbors", "ping", "get_evidence"}
 GOD = {"list_fault_scenarios", "apply_fault", "get_fault_state", "reset_lab"}
@@ -18,6 +18,7 @@ class Policy:
         if profile not in {"private", "authenticated"}:
             raise ValueError("Unknown exposure profile")
         self._reload_lock = asyncio.Lock()
+        self._auth_pending = 0
         self.profile = profile
         self.token_file = token_file
         self.required_file = token_file.exists() or profile == "authenticated"
@@ -92,22 +93,30 @@ class Policy:
             raise ValueError("Authenticated deployment requires Operator credential")
 
     async def authenticate_async(self, headers, files):
-        async with self._reload_lock:
-            clone = copy.copy(self)
-            clone.credentials = dict(self.credentials)
-            try:
-                await files.run(clone.reload)
-            except OSError:
-                return None
-            self.credentials.clear()
-            self.credentials.update(clone.credentials)
-            self.required_file = clone.required_file
-            self._fingerprint = clone._fingerprint
-            self.invalid = clone.invalid
-            self.redaction_secrets = clone.redaction_secrets
-            self.redaction_blocked = clone.redaction_blocked
-            self.redaction_revision = clone.redaction_revision
-            return self.authenticate_cached(headers)
+        if self._auth_pending >= 32:
+            raise MCPAuthenticationBusy("file_io_busy")
+        self._auth_pending += 1
+        try:
+            async with self._reload_lock:
+                clone = copy.copy(self)
+                clone.credentials = dict(self.credentials)
+                try:
+                    await files.run(clone.reload)
+                except OSError as exc:
+                    if str(exc) == "file_io_busy":
+                        raise MCPAuthenticationBusy("file_io_busy") from None
+                    return None
+                self.credentials.clear()
+                self.credentials.update(clone.credentials)
+                self.required_file = clone.required_file
+                self._fingerprint = clone._fingerprint
+                self.invalid = clone.invalid
+                self.redaction_secrets = clone.redaction_secrets
+                self.redaction_blocked = clone.redaction_blocked
+                self.redaction_revision = clone.redaction_revision
+                return self.authenticate_cached(headers)
+        finally:
+            self._auth_pending -= 1
 
     def authenticate(self, headers):
         self.reload()

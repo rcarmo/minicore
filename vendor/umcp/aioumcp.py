@@ -88,6 +88,7 @@ from uuid import uuid4
 from umcp_shared import (
     SUPPORTED_PROTOCOL_VERSIONS,
     MCPCancellationState,
+    MCPAuthenticationBusy,
     MCPHTTPResponse,
     MCPPrincipal,
     MCPRequestCancelled,
@@ -2712,6 +2713,9 @@ class AsyncMCPServer:
                     headers=headers,
                     peer=peer[0] if peer else None,
                 )
+            except MCPAuthenticationBusy:
+                await send_json({"error_code": "file_io_busy"}, "503 Service Unavailable", origin=allowed_origin)
+                return keep_alive
             except Exception:
                 self.logger.exception("HTTP authentication hook failed for %s %s", method, target)
                 await send_response("500 Internal Server Error", origin=allowed_origin)

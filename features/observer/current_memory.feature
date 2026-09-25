@@ -51,3 +51,23 @@ Feature: Retain only bounded recent observer records in memory
     Given a coordinator with two bounded asynchronous sources
     When the store generation changes during a slow successful collection
     Then the old collection result is discarded before publication
+
+  Scenario: A retained host sample from before reset cannot enter the new generation
+    Given an observer with a controllable monotonic clock
+    When a reset is followed by an old but unexpired host sample
+    Then the new generation remains empty until a newly acquired sample arrives
+
+  Scenario: Source recovery cannot compare across a failed observation
+    Given an observer with a controllable monotonic clock
+    When successful route samples are separated by a failed read
+    Then recovery starts a new comparison baseline
+
+  Scenario: Multicast group cardinality is bounded independently of record count
+    Given an observer with a controllable monotonic clock
+    When reports introduce more than 256 distinct multicast groups
+    Then only 256 groups remain and overflow is reported
+
+  Scenario: A silent collector cannot keep source health live indefinitely
+    Given an observer with a controllable monotonic clock
+    When an interface source stops updating for more than three seconds
+    Then its retained rows stay timestamped but source health is delayed

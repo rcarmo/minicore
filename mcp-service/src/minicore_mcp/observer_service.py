@@ -15,7 +15,7 @@ from .routing import prefixes
 
 
 class CounterService:
-    def __init__(self, inventory, path, *, allowed_uid=10001, clock=time.monotonic):
+    def __init__(self, inventory, path, *, allowed_uid=10001, clock=time.monotonic, capture=False):
         self.inventory = inventory
         self.path = Path(path)
         self.allowed_uid = allowed_uid
@@ -27,6 +27,9 @@ class CounterService:
         self.tasks = []
         self.clients = set()
         self.last_discovery = -60.0
+        from .igmp_capture import Capture
+
+        self.capture = Capture(self.store, clock=clock) if capture else None
 
     def ingest(self, values):
         for node, row in values.items():
@@ -96,6 +99,22 @@ class CounterService:
                 self.mappings.clear()
                 for node in self.nodes:
                     self.store.health(f"node:{node}:interfaces", "collection_failed", "unbound")
+            if self.capture:
+                bindings = []
+                for node, row in self.mappings.items():
+                    incarnation = hashlib.sha256(row["incarnation"].encode()).hexdigest()[:24]
+                    for mapping in row["_internal"]["mappings"]:
+                        bindings.append(
+                            {
+                                "node": node,
+                                "interface": mapping["interface"],
+                                "ifindex": mapping["host_ifindex"],
+                                "host_name": mapping["host_name"],
+                                "incarnation": incarnation,
+                            }
+                        )
+                self.capture.reconcile(bindings)
+                self.capture.poll_stats()
             await asyncio.sleep(max(0.1, 1 - (self.clock() - began)))
 
     async def _sweep(self):
@@ -127,14 +146,18 @@ class CounterService:
                     if (
                         len(raw) > 512
                         or not isinstance(args, dict)
-                        or set(args) != {"node_id"}
+                        or set(args) not in ({"node_id"}, {"node_id", "kind"})
+                        or args.get("kind", "interfaces") not in {"interfaces", "igmp"}
                         or not isinstance(args["node_id"], str)
                         or args["node_id"] not in self.nodes
                     ):
                         result = {"error_code": "invalid_scope", "data": None}
                     else:
-                        value = self.store.snapshot(f"node:{args['node_id']}:interfaces")
-                        if not value["records"] or value["source_health"] != "ok":
+                        kind = args.get("kind", "interfaces")
+                        value = self.store.snapshot(f"node:{args['node_id']}:{kind}")
+                        if kind == "igmp":
+                            result = value
+                        elif not value["records"] or value["source_health"] != "ok":
                             result = {"data": None, "error_code": "source_unavailable"}
                         else:
                             row = value["records"][-1]
@@ -168,6 +191,8 @@ class CounterService:
         if self.server:
             self.server.close()
             await self.server.wait_closed()
+        if self.capture:
+            self.capture.close()
         tasks = [*self.tasks, *self.clients]
         for task in tasks:
             task.cancel()
@@ -183,17 +208,28 @@ class HostClient:
     def __init__(self, path):
         self.path = path
 
-    async def read(self, node):
+    async def read(self, node, kind="interfaces"):
         writer = None
         try:
             async with asyncio.timeout(4):
                 reader, writer = await asyncio.open_unix_connection(str(self.path), limit=65537)
-                writer.write(encoded({"node_id": node}) + b"\n")
+                writer.write(encoded({"node_id": node, "kind": kind}) + b"\n")
                 await writer.drain()
                 raw = await reader.readline()
                 if len(raw) > 65536:
                     raise ValueError("output_limit")
                 result = json.loads(raw)
+                if kind == "igmp":
+                    if (
+                        not isinstance(result, dict)
+                        or not isinstance(result.get("records"), list)
+                        or len(result["records"]) > 128
+                        or result.get("scope") != f"node:{node}:igmp"
+                    ):
+                        raise ValueError("invalid_observation")
+                    for row in result["records"]:
+                        validate("igmp", row["data"])
+                    return result
                 if not isinstance(result, dict) or set(result) - {
                     "data",
                     "acquired",
@@ -296,6 +332,32 @@ class ObserverRuntime:
             except Exception:
                 if epoch == self.store.epoch:
                     self.store.health(f"node:{node}:interfaces", "source_unavailable", "unbound")
+            try:
+                igmp = await self.host.read(node, kind="igmp")
+                if epoch == self.store.epoch:
+                    scope = f"node:{node}:igmp"
+                    source = igmp.get("source_incarnation") or "unbound"
+                    incarnation = igmp["observer_epoch"] + ":" + source
+                    self.store.health(scope, igmp["source_health"], incarnation)
+                    current = {
+                        (r["incarnation"], r["acquired_monotonic"])
+                        for r in self.store.snapshot(scope)["records"]
+                    }
+                    for row in igmp["records"]:
+                        if row["incarnation"] != source:
+                            continue
+                        if (incarnation, row["acquired_monotonic"]) not in current:
+                            self.store.put(
+                                scope,
+                                row["data"],
+                                acquired=row["acquired_monotonic"],
+                                incarnation=incarnation,
+                            )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                if epoch == self.store.epoch:
+                    self.store.health(f"node:{node}:igmp", "source_unavailable", "unbound")
             await asyncio.sleep(1)
 
     async def _host_loop(self):

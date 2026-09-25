@@ -32,3 +32,17 @@ Feature: Share volatile source collection through a bounded Unix socket
   Scenario: A slow host reader cannot stall a different node's refresh schedule
     When one host reader stalls while another node returns immediately
     Then the healthy host node is collected repeatedly before the stalled reader finishes
+
+  Scenario: Transfer decoded IGMP without refreshing its acquisition time
+    Given a host counter service with recorded inventory mappings
+    And a decoded IGMP report is present in its volatile store
+    When the permitted management client reads the IGMP scope twice
+    Then both reads keep the same packet acquisition time and contain only typed fields
+
+  Scenario: A replacement capture interface clears its previous reports immediately
+    When the same host observer epoch returns a new IGMP source incarnation
+    Then management retains only the reports from the new incarnation
+
+  Scenario: IGMP read failure cannot leave a healthy IGMP status
+    When interfaces succeed but the IGMP source fails after a successful report
+    Then interface health stays healthy and IGMP health becomes unavailable

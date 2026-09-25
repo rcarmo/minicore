@@ -16,7 +16,7 @@ from minicore_mcp.observer_service import CounterService  # noqa: E402
 
 async def run(inventory):
     path = ROOT / "runtime/observer-socket/counters.sock"
-    service = CounterService(inventory, path)
+    service = CounterService(inventory, path,capture=os.environ.get("MINICORE_IGMP_CAPTURE")=="1")
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):

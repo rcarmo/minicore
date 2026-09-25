@@ -17,3 +17,18 @@ Feature: Verify read-only observer host sources against the local lab
   Scenario: No observation file is created by the host observer
     When the deployed observer sources have collected router and endpoint data
     Then the host socket directory contains only a Unix socket and the observer process cannot swap or dump core
+
+  Scenario: Observe a real IGMP control transmission without retaining packets
+    Given the IGMP-only host observer is enabled
+    When an inventoried router transmits a synthetic IGMPv2 report
+    Then the scoped observer API reports the group and sending interface without raw bytes
+    And the observation expires after sixty seconds even when read repeatedly
+
+  Scenario: Capture service has only the required additional capability
+    Given the IGMP-only host observer is enabled
+    Then the capture process is non-root with only CAP_NET_RAW and no swap or core dumps
+
+  Scenario: The installed kernel filter rejects non-IGMP traffic before user-space parsing
+    Given the IGMP-only host observer is enabled
+    When a temporary identical filtered tap receives synthetic UDP OSPF and IGMP
+    Then only the IGMP transmission is delivered by the kernel

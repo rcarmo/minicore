@@ -117,6 +117,7 @@ export interface ValidatedEnvelope {
   truncated: boolean;
   omitted: number;
   records: ValidatedRecord[];
+  sources?: Record<string, SourceHealth>;
 }
 
 export interface ObserverEnvelope {
@@ -428,7 +429,7 @@ export function validateObserverEnvelope(
     };
   });
   for (const record of validated) {
-    const key = `${record.incarnation}:${record.acquiredMonotonic}:${record.sampledAt}`;
+    const key = `${record.incarnation}:${record.acquiredMonotonic}`;
     if (seen.has(key)) throw new Error("Duplicate observer record identity");
     seen.add(key);
   }
@@ -442,6 +443,26 @@ export function validateObserverEnvelope(
     truncated: raw.truncated,
     omitted: raw.omitted,
     records: validated,
+    sources: (() => {
+      const value = (raw as unknown as { sources?: unknown }).sources;
+      if (value === undefined) return undefined;
+      const sources = asObject(value, "source health");
+      if (Object.keys(sources).length > 2) throw Error("Too many sources");
+      for (const [node, health] of Object.entries(sources)) {
+        if (
+          !snapshot.nodes.some((n) => n.id === node) ||
+          ![
+            "ok",
+            "collection_timeout",
+            "collection_failed",
+            "invalid_observation",
+            "source_unavailable",
+          ].includes(String(health))
+        )
+          throw Error("Invalid source health");
+      }
+      return sources as Record<string, SourceHealth>;
+    })(),
   };
 }
 

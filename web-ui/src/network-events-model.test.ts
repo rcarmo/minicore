@@ -644,3 +644,23 @@ test("regression: interleaved endpoint rate samples use matching source", () => 
     10, 20,
   ]);
 });
+
+test("regression: conflicting acquisition identity fails validation", () => {
+  const scope = { type: "node", id: "p1" } as const;
+  const first = structuredClone(recordBase),
+    second = {
+      ...structuredClone(recordBase),
+      sampled_at: "2026-09-25T00:00:01Z",
+    };
+  expect(() =>
+    validateObserverEnvelope(
+      envelope("routing", scope, [first, second]),
+      snapshot,
+      scope,
+      "routing",
+      0,
+      0,
+      0,
+    ),
+  ).toThrow();
+});

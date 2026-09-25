@@ -111,3 +111,6 @@ Feature: Current network workbench interactions
 
   Scenario: One compact toolbar groups navigation and fault controls
     Then the header replaces generation with God mode and keeps all controls inline with accessible touch targets
+
+  Scenario: Older logs can interrupt an in-flight follow refresh
+    Then log paging stays actionable during refresh and cancels the live request

@@ -1356,3 +1356,73 @@ Then(
     await page.unrouteAll({ behavior: "wait" });
   },
 );
+
+Then(
+  "log paging stays actionable during refresh and cancels the live request",
+  async ({ page }) => {
+    let calls = 0;
+    let release: () => void = () => {};
+    let waiting = false;
+    const pause = new Promise<void>((resolve) => (release = resolve));
+    const sample = (older: boolean) => ({
+      node_id: "p1",
+      generation: 1,
+      status: "ok",
+      error_code: null,
+      collected_at: new Date().toISOString(),
+      truncated: false,
+      data: {
+        entries: [
+          {
+            id: older ? "older" : "latest",
+            timestamp: new Date().toISOString(),
+            source: "container",
+            severity: "info",
+            message: older ? "older saved line" : "live latest line",
+            truncated: false,
+          },
+        ],
+        revision: older ? "0" : "1",
+        next_cursor: older ? null : "older",
+        source: "container",
+        window_start: new Date().toISOString(),
+        window_end: new Date().toISOString(),
+        retained_count: 2,
+      },
+    });
+    await page.route("**/api/v1/nodes/p1/logs/events", (r) =>
+      r.fulfill({ status: 503, body: "" }),
+    );
+    await page.route(/\/api\/v1\/nodes\/p1\/logs(?:\?.*)?$/, async (r) => {
+      const older = new URL(r.request().url()).searchParams.has("cursor");
+      if (!older && ++calls === 2) {
+        waiting = true;
+        await pause;
+        if (r.request().failure()) return;
+      }
+      await r.fulfill({ json: sample(older) });
+    });
+    await page.goto("/#p1");
+    await page.getByRole("button", { name: "Logs", exact: true }).click();
+    await expect(page.getByLabel("Node log entries")).toContainText(
+      "live latest line",
+    );
+    await page.getByRole("button", { name: "Latest", exact: true }).click();
+    await expect.poll(() => waiting).toBe(true);
+    try {
+      await expect(
+        page.getByRole("button", { name: "Older", exact: true }),
+      ).toBeEnabled();
+      await page.getByRole("button", { name: "Older", exact: true }).click();
+      await expect(page.getByLabel("Node log entries")).toContainText(
+        "older saved line",
+      );
+      await expect(
+        page.getByRole("button", { name: "Follow latest", exact: true }),
+      ).toBeVisible();
+    } finally {
+      release();
+      await page.unrouteAll({ behavior: "ignoreErrors" });
+    }
+  },
+);

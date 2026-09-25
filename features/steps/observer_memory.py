@@ -308,3 +308,74 @@ def generation_inflight(c):
 @then("the old collection result is discarded before publication")
 def discarded_inflight(c):
     assert c.after_generation["generation"] == 2 and c.after_generation["records"] == []
+
+
+@when("a reset is followed by an old but unexpired host sample")
+def reset_old_host(c):
+    c.now = 110
+    c.store.reset(2)
+    c.old_after_reset = c.store.put(
+        "node:p1:interfaces", sample(), acquired=100, incarnation="same"
+    )
+
+
+@then("the new generation remains empty until a newly acquired sample arrives")
+def new_generation_only(c):
+    assert c.old_after_reset is False and c.store.record_count == 0
+    assert c.store.put("node:p1:interfaces", sample(), acquired=110, incarnation="same")
+
+
+@when("successful route samples are separated by a failed read")
+def gap_route(c):
+    data = {"peers": [], "routes": [{"prefix": "10.200.8.0/29", "source": "rib", "nexthops": []}]}
+    c.store.put("node:p1:routing", data, acquired=100, incarnation="same")
+    c.now = 101
+    c.store.health("node:p1:routing", "collection_timeout", "same")
+    c.now = 102
+    c.store.put("node:p1:routing", {"peers": [], "routes": []}, acquired=102, incarnation="same")
+
+
+@then("recovery starts a new comparison baseline")
+def no_gap_delta(c):
+    assert len(c.store.snapshot("node:p1:routing")["records"]) == 1
+
+
+@when("reports introduce more than 256 distinct multicast groups")
+def too_many_groups(c):
+    from ipaddress import IPv4Address
+
+    for n in range(300):
+        c.store.put(
+            "node:p1:igmp",
+            {
+                "version": 2,
+                "message_type": "report_v2",
+                "group": str(IPv4Address(int(IPv4Address("239.1.0.1")) + n)),
+                "reporter": "10.200.1.2",
+                "querier": None,
+                "sources": [],
+                "records": [],
+            },
+            acquired=c.now,
+            incarnation="groups",
+        )
+
+
+@then("only 256 groups remain and overflow is reported")
+def bounded_groups(c):
+    assert c.store.record_count == 256 and c.store.missed >= 44, (
+        c.store.record_count,
+        c.store.missed,
+    )
+
+
+@when("an interface source stops updating for more than three seconds")
+def age_interface(c):
+    c.store.put("node:p1:interfaces", sample(), acquired=100, incarnation="same")
+    c.now = 104
+
+
+@then("its retained rows stay timestamped but source health is delayed")
+def source_aged(c):
+    data = c.store.snapshot("node:p1:interfaces")
+    assert data["records"] and data["source_health"] == "collection_timeout", data

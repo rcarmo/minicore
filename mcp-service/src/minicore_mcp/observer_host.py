@@ -253,6 +253,7 @@ async def collect_interfaces(
                         "container_ifindex": item["ifindex"],
                         "container_peer_ifindex": item["link_index"],
                         "host_ifindex": host["ifindex"],
+                        "host_name": host["name"],
                         "host_bridge_ifindex": bridge["ifindex"],
                     }
                 )

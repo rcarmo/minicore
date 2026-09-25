@@ -184,6 +184,7 @@ def link_data(c):
 
 @given("one link endpoint collection fails")
 def failed_endpoint(c):
+    c.obs.health("node:p1:interfaces", "ok", "p1-test")
     c.obs.health("node:p2:interfaces", "collection_timeout", "p2-test")
 
 

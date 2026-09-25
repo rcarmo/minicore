@@ -139,16 +139,15 @@ def validate(kind, data):
             for hop in route["nexthops"]:
                 address(hop)
     elif kind == "igmp":
-        if set(data) != {
-            "version",
-            "message_type",
-            "group",
-            "reporter",
-            "querier",
-            "sources",
-            "records",
-        }:
+        required = {"version", "message_type", "group", "reporter", "querier", "sources", "records"}
+        if not required <= set(data) or set(data) - required - {"node_id", "interface"}:
             raise ValueError("invalid_observation")
+        for field in ("node_id", "interface"):
+            if field in data and (
+                not isinstance(data[field], str)
+                or not re.fullmatch("[a-zA-Z0-9_.-]{1,32}", data[field])
+            ):
+                raise ValueError("invalid_observation")
         if data["version"] not in {1, 2, 3} or data["message_type"] not in {
             "query",
             "report",
@@ -207,11 +206,13 @@ class Store:
         self.max_bytes = max_bytes
         self.max_records = max_records
         self.epoch = str(uuid4())
+        self.not_before = float("-inf")
         self._rows: deque[tuple[str, float, bytes, int]] = deque()
         self._scopes: dict[str, tuple[str, str, float]] = {}
         self._bytes = 0
         self.missed = 0
         self.revision = 0
+        self._groups: dict[str, float] = {}
 
     def _scope(self, scope):
         if not isinstance(scope, str) or not SCOPES.fullmatch(scope):
@@ -227,6 +228,7 @@ class Store:
         if len(self._rows) != before:
             self.revision += 1
         self._bytes = sum(row[3] for row in self._rows)
+        self._groups = {g: t for g, t in self._groups.items() if 0 <= now - t < 60}
         self._scopes = {
             key: value for key, value in self._scopes.items() if 0 <= now - value[2] < 60
         }
@@ -254,7 +256,7 @@ class Store:
         ):
             raise ValueError("invalid_source")
         old = self._scopes.get(scope)
-        if old and old[0] != incarnation:
+        if old and (old[0] != incarnation or old[1] != "ok" and state == "ok"):
             self._rows = deque(row for row in self._rows if row[0] != scope)
             self._bytes = sum(row[3] for row in self._rows)
         self._scopes[scope] = (incarnation, state, self.clock())
@@ -270,10 +272,19 @@ class Store:
             or acquired > self.clock()
         ):
             raise ValueError("invalid_acquisition_time")
-        if self.clock() - acquired >= 60:
+        if acquired < self.not_before or self.clock() - acquired >= 60:
             self._missed()
             return False
-        validate(scope.rsplit(":", 1)[-1], data)
+        kind = scope.rsplit(":", 1)[-1]
+        validate(kind, data)
+        if kind == "igmp":
+            groups = {data["group"]} if data.get("group") else set()
+            groups.update(row["group"] for row in data["records"])
+            if len(set(self._groups) | groups) > 256:
+                self._missed()
+                return False
+            for group in groups:
+                self._groups[group] = acquired
         self.health(scope, "ok", incarnation)
         row = {
             "scope": scope,
@@ -297,6 +308,7 @@ class Store:
             self._missed()
         self._rows.append((scope, acquired, payload, cost))
         self._bytes += cost
+        self._scopes[scope] = (incarnation, "ok", acquired)
         self.revision += 1
         return True
 
@@ -314,11 +326,19 @@ class Store:
             "scope": scope,
             "window_seconds": 60,
             "source_health": self._scopes.get(scope, (None, "source_unavailable"))[1],
+            "source_incarnation": self._scopes.get(scope, (None,))[0],
             "missed_updates": self.missed,
             "truncated": False,
             "omitted": 0,
             "records": [],
         }
+        health = self._scopes.get(scope)
+        if (
+            health
+            and health[1] == "ok"
+            and now - health[2] > (15 if scope.endswith(":routing") else 3)
+        ):
+            result["source_health"] = "collection_timeout"
         selected = []
         for row in rows[-128:]:
             item = json.loads(row[2])
@@ -336,11 +356,13 @@ class Store:
         return result
 
     def reset(self, generation):
+        self.not_before = self.clock()
         self.generation = generation
         self.epoch = str(uuid4())
         self.revision += 1
         self._rows.clear()
         self._scopes.clear()
+        self._groups.clear()
         self._bytes = 0
         self.missed = 0
 

@@ -205,3 +205,136 @@ def independent_host(c):
 @then("the healthy host node is collected repeatedly before the stalled reader finishes")
 def independent_fast(c):
     assert c.fast_calls >= 2, c.fast_calls
+
+
+@given("a decoded IGMP report is present in its volatile store")
+def socket_igmp(c):
+    c.host.store.put(
+        "node:p1:igmp",
+        {
+            "version": 2,
+            "message_type": "report_v2",
+            "group": "239.1.1.1",
+            "reporter": "10.200.1.2",
+            "querier": None,
+            "sources": [],
+            "records": [],
+            "node_id": "p1",
+            "interface": "to-p2",
+        },
+        acquired=99.0,
+        incarnation="sample-first",
+    )
+
+
+@when("the permitted management client reads the IGMP scope twice")
+def igmp_socket_reads(c):
+    async def run():
+        _, HostClient, _ = api()
+        await c.host.start(collect=False)
+        try:
+            client = HostClient(c.root / "observer.sock")
+            try:
+                c.first_igmp = await client.read("p1", kind="igmp")
+                c.obs_time += 1
+                c.second_igmp = await client.read("p1", kind="igmp")
+            except TypeError:
+                raise AssertionError("IGMP socket selector is not implemented") from None
+        finally:
+            await c.host.close()
+
+    asyncio.run(run())
+
+
+@then("both reads keep the same packet acquisition time and contain only typed fields")
+def igmp_acquisition(c):
+    a = c.first_igmp["records"][0]
+    b = c.second_igmp["records"][0]
+    assert (
+        a["acquired_monotonic"] == b["acquired_monotonic"] == 99
+        and b["remaining_ms"] < a["remaining_ms"]
+    )
+    assert b["data"]["group"] == "239.1.1.1" and "raw" not in b
+
+
+async def runtime_igmp_case(c, failure=False):
+    from minicore_mcp.observer_service import ObserverRuntime
+
+    runtime = ObserverRuntime(c.topology, None, c.root / "unused.sock")
+    counter = 0
+
+    async def read(node, kind="interfaces"):
+        nonlocal counter
+        if kind == "interfaces":
+            return {
+                "error_code": None,
+                "data": {
+                    "interfaces": [
+                        {"interface": "to-p2", "state": "UP", "tx_packets": 1, "rx_packets": 1}
+                    ]
+                },
+                "acquired": runtime.store.clock(),
+                "incarnation": "interface-stable",
+            }
+        if node != "p1":
+            return {
+                "records": [],
+                "scope": f"node:{node}:igmp",
+                "observer_epoch": "host-epoch",
+                "source_incarnation": "quiet",
+                "source_health": "ok",
+            }
+        counter += 1
+        if counter > 1 and failure:
+            raise OSError("IGMP socket read failed")
+        inc = "first" if counter == 1 else "second"
+        data = {
+            "version": 2,
+            "message_type": "report_v2",
+            "group": "239.1.1.1" if counter == 1 else "239.1.1.2",
+            "reporter": "10.200.1.2",
+            "querier": None,
+            "sources": [],
+            "records": [],
+            "node_id": "p1",
+            "interface": "to-p2",
+        }
+        return {
+            "records": [
+                {"incarnation": inc, "acquired_monotonic": runtime.store.clock(), "data": data}
+            ],
+            "scope": "node:p1:igmp",
+            "observer_epoch": "host-epoch",
+            "source_incarnation": inc,
+            "source_health": "ok",
+        }
+
+    runtime.host.read = read
+    await runtime.start()
+    await asyncio.sleep(1.2)
+    c.igmp_runtime = runtime.store.snapshot("node:p1:igmp")
+    c.interfaces_runtime = runtime.store.snapshot("node:p1:interfaces")
+    await runtime.close()
+
+
+@when("the same host observer epoch returns a new IGMP source incarnation")
+def changed_igmp_inc(c):
+    asyncio.run(runtime_igmp_case(c))
+
+
+@then("management retains only the reports from the new incarnation")
+def new_only(c):
+    assert [r["data"]["group"] for r in c.igmp_runtime["records"]] == ["239.1.1.2"], c.igmp_runtime
+
+
+@when("interfaces succeed but the IGMP source fails after a successful report")
+def igmp_source_fails(c):
+    asyncio.run(runtime_igmp_case(c, True))
+
+
+@then("interface health stays healthy and IGMP health becomes unavailable")
+def independent_health(c):
+    assert (
+        c.interfaces_runtime["source_health"] == "ok"
+        and c.igmp_runtime["source_health"] == "source_unavailable"
+    ), (c.interfaces_runtime, c.igmp_runtime)

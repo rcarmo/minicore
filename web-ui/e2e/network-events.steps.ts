@@ -317,3 +317,45 @@ Then(
     expect(count).toBeGreaterThan(1);
   },
 );
+Then(
+  "two rows with the same source acquisition cannot hide behind different display timestamps",
+  async () => {
+    const result = await run([
+      "bun",
+      "test",
+      "src/network-events-model.test.ts",
+      "--test-name-pattern",
+      "regression: conflicting",
+    ]);
+    expect(result.code, result.text).toBe(0);
+  },
+);
+Then(
+  "a partial link response names the failed endpoint with a plain status message",
+  async ({ page }) => {
+    const fixture = await observerFixture(page);
+    await page.route("**/api/v1/observer?*", (r) => {
+      const data = fixture("link:p1-p2:interfaces", { interfaces: [] });
+      data.source_health = "collection_timeout";
+      data.truncated = true;
+      return r.fulfill({
+        json: {
+          ...data,
+          records: [],
+          sources: { p1: "ok", p2: "collection_timeout" },
+        },
+      });
+    });
+    await page.goto("/#p1");
+    await page
+      .getByRole("button", { name: "Network events", exact: true })
+      .click();
+    const panel = page.getByRole("region", {
+      name: "Network events",
+      exact: true,
+    });
+    await panel.getByLabel("Network event scope").selectOption("link:p1-p2");
+    await expect(panel).toContainText("p2: Collection timed out");
+    await expect(panel).not.toContainText("source_health=");
+  },
+);

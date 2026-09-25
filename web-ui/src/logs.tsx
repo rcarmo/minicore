@@ -187,7 +187,7 @@ export function NodeLogs({
         <button disabled={loading} onClick={() => fetchPage.current()}>
           Latest
         </button>
-        <button disabled={loading || !page?.data.next_cursor} onClick={older}>
+        <button disabled={!page?.data.next_cursor} onClick={older}>
           Older
         </button>
         <label>

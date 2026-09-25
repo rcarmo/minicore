@@ -110,3 +110,7 @@ observer-stop:
 	sh scripts/observer-service.sh stop
 live-observer:
 	.venv/bin/behave features/operations/live_observer.feature
+observer-capture-start:
+	sh scripts/observer-capture-service.sh start
+observer-capture-stop:
+	sh scripts/observer-capture-service.sh stop

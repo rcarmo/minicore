@@ -31,3 +31,9 @@ Feature: Volatile network events panel
 
   Scenario: Repeated fetches cannot renew a record lifetime
     Then a repeating observer response with the same acquisition expires even while fetches succeed
+
+  Scenario: Conflicting record identities are rejected before rendering
+    Then two rows with the same source acquisition cannot hide behind different display timestamps
+
+  Scenario: Show which link endpoint is unavailable
+    Then a partial link response names the failed endpoint with a plain status message

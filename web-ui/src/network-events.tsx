@@ -321,9 +321,17 @@ export function NetworkEvents({
 
   const disabledRouting = scope.type === "link";
   const sourceHealth = current?.sourceHealth ?? "unknown";
+  const sourceLabel = (health: string) =>
+    ({
+      ok: "Live",
+      collection_timeout: "Collection timed out",
+      collection_failed: "Source disconnected",
+      invalid_observation: "Invalid source response",
+      source_unavailable: "Source unavailable",
+    })[health] ?? "Connecting…";
   const healthText = failure
-    ? failure
-    : `source_health=${sourceHealth} · ${connection}${model.clipped ? " · clipped" : ""}`;
+    ? `Observer unavailable: ${failure}`
+    : `${sourceLabel(current?.sourceHealth ?? "")} · ${connection}${model.clipped ? " · List shortened" : ""}`;
 
   return (
     <FloatingPanel
@@ -421,6 +429,15 @@ export function NetworkEvents({
               ? ` · age ${Math.max(0, Math.round(model.ageMs / 1000))}s`
               : ""}
           </p>
+          {current?.sources && (
+            <p>
+              {Object.entries(current.sources).map(([node, status]) => (
+                <span>
+                  {node}: {sourceLabel(status)}{" "}
+                </span>
+              ))}
+            </p>
+          )}
           <Sparkline model={model} />
           {model.rates.length > 0 && (
             <table class="event-rates">

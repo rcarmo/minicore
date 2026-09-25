@@ -12,6 +12,9 @@ class FileIO:
             raise ValueError("invalid_file_io_limits")
         self.executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="minicore-file")
         self.capacity = capacity
+        # Queue in asyncio, not the executor's unbounded queue. Cancelled waiters
+        # release admission immediately without leaving executor work items behind.
+        self.slots = asyncio.Semaphore(workers)
         self.pending = set()
         self.closed = False
 
@@ -19,35 +22,42 @@ class FileIO:
         if self.closed or len(self.pending) >= self.capacity:
             raise OSError("file_io_busy")
         loop = asyncio.get_running_loop()
-        context = contextvars.copy_context()
-        future = loop.run_in_executor(
-            self.executor, context.run, partial(function, *args, **kwargs)
-        )
-        self.pending.add(future)
-        cancelled = False
+        finished = loop.create_future()
+        self.pending.add(finished)
         try:
-            while not future.done():
-                try:
-                    await asyncio.shield(future)
-                except asyncio.CancelledError:
-                    cancelled = True
-                except Exception:
-                    break
-            if cancelled:
-                # Retrieve any exception; cancellation wins only after the worker stops.
-                try:
-                    future.result()
-                except Exception:
-                    pass
-                raise asyncio.CancelledError()
-            return future.result()
+            async with self.slots:
+                context = contextvars.copy_context()
+                future = loop.run_in_executor(
+                    self.executor, context.run, partial(function, *args, **kwargs)
+                )
+                return await self.drain(future)
         finally:
-            self.pending.discard(future)
+            self.pending.discard(finished)
+            finished.set_result(None)
+
+    @staticmethod
+    async def drain(future):
+        cancelled = False
+        while not future.done():
+            try:
+                await asyncio.shield(future)
+            except asyncio.CancelledError:
+                cancelled = True
+            except Exception:
+                break
+        if cancelled:
+            # Retrieve any exception; cancellation wins only after the worker stops.
+            try:
+                future.result()
+            except Exception:
+                pass
+            raise asyncio.CancelledError()
+        return future.result()
 
     async def close(self):
         self.closed = True
-        if self.pending:
-            await asyncio.gather(
-                *[asyncio.shield(f) for f in list(self.pending)], return_exceptions=True
-            )
-        self.executor.shutdown(wait=False, cancel_futures=True)
+        try:
+            if self.pending:
+                await self.drain(asyncio.gather(*list(self.pending)))
+        finally:
+            self.executor.shutdown(wait=False, cancel_futures=True)

@@ -46,3 +46,16 @@ Feature: Keep MCP and web responsive while filesystem operations are slow
   Scenario: Topology and log SSE generators do not block on file reads
     When a topology stream reads a deliberately slow observation file
     Then a concurrent activity snapshot remains responsive
+
+  Scenario: Cancel queued file work before it reaches an executor thread
+    When an admitted file job is cancelled before its worker starts
+    Then it releases admission without running or waiting for the blocked worker
+    And a replacement job can use the released admission slot
+
+  Scenario: Repeated queued cancellations keep executor backlog bounded
+    When queued file work is repeatedly admitted and cancelled behind a blocked worker
+    Then no cancelled work reaches the executor queue
+
+  Scenario: Cancelling file shutdown still drains running work
+    When file shutdown is cancelled while a worker is running
+    Then shutdown rejects new work and waits for the running worker

@@ -413,3 +413,152 @@ def slow_stream_read(c):
 @then("a concurrent activity snapshot remains responsive")
 def stream_free(c):
     assert c.stream_free
+
+
+@when("an admitted file job is cancelled before its worker starts")
+def cancel_queued(c):
+    async def run():
+        pool = pool_api()(workers=1, capacity=2)
+        entered = threading.Event()
+        release = threading.Event()
+        c.queued_ran = False
+
+        def blocked():
+            entered.set()
+            release.wait(2)
+
+        def queued():
+            c.queued_ran = True
+
+        first = asyncio.create_task(pool.run(blocked))
+        while not entered.is_set():
+            await asyncio.sleep(0.001)
+        second = asyncio.create_task(pool.run(queued))
+        await asyncio.sleep(0.01)
+        second.cancel()
+        await asyncio.sleep(0.03)
+        c.queued_finished_early = second.done()
+        replacement = asyncio.create_task(pool.run(lambda: 3))
+        await asyncio.sleep(0.01)
+        c.replacement_admitted = not replacement.done()
+        release.set()
+        results = await asyncio.gather(first, second, replacement, return_exceptions=True)
+        c.queued_cancelled = isinstance(results[1], asyncio.CancelledError)
+        c.replacement_result = results[2]
+        await pool.close()
+
+    asyncio.run(run())
+
+
+@then("it releases admission without running or waiting for the blocked worker")
+def queued_released(c):
+    assert c.queued_finished_early and c.queued_cancelled and not c.queued_ran, (
+        c.queued_finished_early,
+        c.queued_cancelled,
+        c.queued_ran,
+    )
+
+
+@then("a replacement job can use the released admission slot")
+def queued_replacement(c):
+    assert c.replacement_admitted and c.replacement_result == 3, c.replacement_result
+
+
+@when("queued file work is repeatedly admitted and cancelled behind a blocked worker")
+def cancel_queue_churn(c):
+    async def run():
+        pool = pool_api()(workers=1, capacity=2)
+        entered = threading.Event()
+        release = threading.Event()
+        ran = []
+        submitted = []
+        original = pool.executor.submit
+
+        def submit(*args, **kwargs):
+            submitted.append(1)
+            return original(*args, **kwargs)
+
+        def blocked():
+            entered.set()
+            release.wait(3)
+
+        tasks = []
+        with patch.object(pool.executor, "submit", side_effect=submit):
+            first = asyncio.create_task(pool.run(blocked))
+            while not entered.is_set():
+                await asyncio.sleep(0.001)
+            c.queued_churn_finished = True
+            for _ in range(40):
+                task = asyncio.create_task(pool.run(lambda: ran.append(1)))
+                tasks.append(task)
+                await asyncio.sleep(0)
+                task.cancel()
+                done, _ = await asyncio.wait({task}, timeout=0.03)
+                if not done:
+                    c.queued_churn_finished = False
+                    break
+            c.executor_submitted = len(submitted)
+            release.set()
+            await asyncio.gather(first, *tasks, return_exceptions=True)
+        c.cancelled_jobs_run = len(ran)
+        c.queue_reusable = await pool.run(lambda: 7)
+        await pool.close()
+
+    asyncio.run(run())
+
+
+@then("no cancelled work reaches the executor queue")
+def churn_bounded(c):
+    assert c.queued_churn_finished and c.executor_submitted == 1 and c.cancelled_jobs_run == 0, (
+        c.queued_churn_finished,
+        c.executor_submitted,
+        c.cancelled_jobs_run,
+    )
+    assert c.queue_reusable == 7
+
+
+@when("file shutdown is cancelled while a worker is running")
+def cancel_pool_shutdown(c):
+    async def run():
+        pool = pool_api()(workers=1, capacity=1)
+        entered = threading.Event()
+        release = threading.Event()
+
+        def blocked():
+            entered.set()
+            release.wait(2)
+
+        first = asyncio.create_task(pool.run(blocked))
+        while not entered.is_set():
+            await asyncio.sleep(0.001)
+        closing = asyncio.create_task(pool.close())
+        await asyncio.sleep(0.01)
+        closing.cancel()
+        await asyncio.sleep(0.01)
+        closing.cancel()
+        await asyncio.sleep(0.01)
+        c.shutdown_held = not closing.done()
+        try:
+            await pool.run(lambda: None)
+        except OSError as exc:
+            c.shutdown_admission = str(exc)
+        finally:
+            release.set()
+        results = await asyncio.gather(first, closing, return_exceptions=True)
+        c.shutdown_cancelled = isinstance(results[1], asyncio.CancelledError)
+        c.shutdown_pending = len(pool.pending)
+        # Standard executor API must reject further submissions after shutdown.
+        try:
+            pool.executor.submit(lambda: None).result(timeout=1)
+            c.executor_closed = False
+        except RuntimeError:
+            c.executor_closed = True
+        await pool.close()
+
+    asyncio.run(run())
+
+
+@then("shutdown rejects new work and waits for the running worker")
+def shutdown_drained(c):
+    assert c.shutdown_held and c.shutdown_cancelled and c.shutdown_admission == "file_io_busy"
+    assert c.shutdown_pending == 0 and c.executor_closed

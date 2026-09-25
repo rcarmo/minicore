@@ -4,6 +4,8 @@
 
 Minicore is an IP network simulator with six FRRouting routers, two packet endpoints and nine data links. It combines live routing diagnostics, a 3D workbench, restricted MCP tools and reversible faults for troubleshooting exercises.
 
+It also allows human and agents to perform "acts of God" and cause faults. That's the fun bit.
+
 ## Features
 
 - **Real routing:** OSPF, a provider iBGP full mesh and two access eBGP sessions, with Linux forwarding and isolated data links.

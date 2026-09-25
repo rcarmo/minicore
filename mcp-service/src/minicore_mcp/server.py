@@ -1,6 +1,7 @@
 """One uMCP listener: role-filtered MCP and read-only HTTP/SSE assets."""
 
 import asyncio
+import copy
 import ipaddress
 import json
 import logging
@@ -19,6 +20,7 @@ from .activity import Activity
 from .configuration import baseline
 from .faults import SCENARIOS as FAULT_SPECS
 from .faults import FaultController
+from .file_io import FileIO
 from .logs import LogStore
 from .model import Topology
 from .observer import Store, link_snapshot
@@ -87,6 +89,9 @@ INPUTS = {
 class Server(AsyncMCPServer):
     def __init__(self, topology: Topology, policy: Policy, assets: Path):
         self.topology, self.policy, self.assets = topology, policy, assets
+        self.files = FileIO()
+        self.auth_files = FileIO(workers=1, capacity=32)
+        self.asset_cache: dict[str, bytes] = {}
         self.config_root = assets.parent.parent / "configs"
         self.adapter: SSHAdapter | None = None
         self.controller: FaultController | None = None
@@ -106,8 +111,30 @@ class Server(AsyncMCPServer):
     def get_instructions(self):
         return "IP network simulator. Operator reads measured evidence; God controls predefined lab faults. Unconfigured backends return explicit errors."
 
-    def authenticate_request(self, *, method, path, headers, peer):
-        return self.policy.authenticate(headers)
+    async def authenticate_request_async(self, *, method, path, headers, peer):
+        return await self.policy.authenticate_async(headers, self.auth_files)
+
+    async def process_request_async(self, raw_message, context=None):
+        # uMCP discovery is synchronous, so authenticate off-loop before dispatch.
+        try:
+            request = json.loads(raw_message)
+        except (ValueError, TypeError):
+            request = {}
+        if isinstance(request, dict) and request.get("method") == "tools/list":
+            headers = context.headers if context else get_request_context().headers
+            if await self.policy.authenticate_async(headers, self.auth_files) is None:
+                return self.create_response(
+                    request.get("id"), error=self.create_error(-32001, "authorization_denied")
+                )
+        return await super().process_request_async(raw_message, context=context)
+
+    async def close_files(self):
+        await self.files.close()
+        await self.auth_files.close()
+        if self.controller:
+            await self.controller.files.close()
+        if self.adapter:
+            await self.adapter.files.close()
 
     def authorize_request(self, principal, *, rpc_method, tool_name):
         allowed = (
@@ -146,7 +173,7 @@ class Server(AsyncMCPServer):
         return allowed
 
     def principal(self):
-        return self.policy.authenticate(get_request_context().headers)
+        return self.policy.authenticate_cached(get_request_context().headers)
 
     def discover_tools(self):
         p = self.principal()
@@ -254,7 +281,9 @@ class Server(AsyncMCPServer):
         trace = str(uuid4())
         name = params.get("name")
         args = params.get("arguments", {})
-        principal = self.principal()
+        principal = await self.policy.authenticate_async(
+            get_request_context().headers, self.auth_files
+        )
         record = {
             "event": "tool_completed",
             "at": datetime.now(timezone.utc).isoformat(),
@@ -283,7 +312,25 @@ class Server(AsyncMCPServer):
                     parameters=spec["parameters"],
                 )
         try:
-            response = await self._handle_tools_call(request_id, params, trace)
+            try:
+                response = await self._handle_tools_call(request_id, params, trace)
+            except OSError as exc:
+                if str(exc) != "file_io_busy":
+                    raise
+                value = self.topology.envelope(
+                    str(name),
+                    args.get("node_id") if isinstance(args, dict) else None,
+                    error="file_io_busy",
+                    request_id=trace,
+                )
+                response = self.create_response(
+                    request_id,
+                    {
+                        "content": [{"type": "text", "text": json.dumps(value)}],
+                        "structuredContent": value,
+                        "isError": True,
+                    },
+                )
             result = response.get("result", {}).get("structuredContent", {})
             record["error_code"] = result.get("error_code") or response.get("error", {}).get(
                 "message"
@@ -322,7 +369,9 @@ class Server(AsyncMCPServer):
         if name == "get_evidence":
             if args["kind"] == "topology":
                 result = self.topology.envelope(
-                    "get_topology", data=self.project_topology("agent"), request_id=trace
+                    "get_topology",
+                    data=await self.project_topology_async("agent"),
+                    request_id=trace,
                 )
             elif args["kind"] == "observer":
                 data = self.observer_snapshot({k: v for k, v in args.items() if k != "kind"})
@@ -335,7 +384,7 @@ class Server(AsyncMCPServer):
                 )
             elif args["kind"] == "logs":
                 try:
-                    result = self.log_store.page(
+                    result = await self.log_page(
                         args["node_id"], args.get("limit", 100), args.get("cursor")
                     )
                 except ValueError as exc:
@@ -343,13 +392,7 @@ class Server(AsyncMCPServer):
                         request_id, error=self.create_error(-32602, str(exc))
                     )
             else:
-                status, result = baseline(
-                    self.topology,
-                    self.config_root,
-                    args["node_id"],
-                    args.get("file"),
-                    self.policy.credentials.values(),
-                )
+                status, result = await self.configuration(args["node_id"], args.get("file"))
                 if status != 200:
                     result = self.topology.envelope(
                         "get_declared_configuration", args["node_id"], error=result["error_code"]
@@ -372,7 +415,7 @@ class Server(AsyncMCPServer):
             data, error = None, None
             if name == "list_nodes":
                 data = {
-                    "nodes": self.topology.snapshot()["nodes"],
+                    "nodes": (await self.topology_snapshot())["nodes"],
                     "supported_operations": sorted(OPERATOR),
                     "runtime_backend": "not_configured",
                 }
@@ -451,8 +494,53 @@ class Server(AsyncMCPServer):
             headers + (("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff")),
         )
 
-    def project_topology(self, view="agent"):
-        snapshot = self.topology.snapshot()
+    def read_context(self):
+        topology = copy.copy(self.topology)
+        topology.inventory = copy.deepcopy(self.topology.inventory)
+        topology.nodes = {n["id"]: n for n in topology.inventory["nodes"]}
+        return topology
+
+    async def topology_snapshot(self):
+        while True:
+            topology = self.read_context()
+            result = await self.files.run(topology.snapshot)
+            if topology.inventory["generation"] == self.topology.inventory["generation"]:
+                self.topology._snapshot = copy.deepcopy(result)
+                return result
+
+    async def log_page(self, node, limit=100, cursor=None):
+        reader = copy.copy(self.log_store)
+        reader.topology = self.read_context()
+        reader.secrets = tuple(self.policy.credentials.values())
+        result = await self.files.run(reader.page, node, limit, cursor)
+        if reader.topology.inventory["generation"] != self.topology.inventory["generation"]:
+            return self.topology.envelope(
+                "get_logs",
+                node,
+                error="generation_mismatch",
+                data={"entries": [], "next_cursor": None, "revision": "unavailable"},
+            )
+        return result
+
+    async def configuration(self, node, name=None):
+        topology = self.read_context()
+        result = await self.files.run(
+            baseline,
+            topology,
+            self.config_root,
+            node,
+            name,
+            tuple(self.policy.credentials.values()),
+        )
+        if topology.inventory["generation"] != self.topology.inventory["generation"]:
+            return 409, {"error_code": "generation_mismatch"}
+        return result
+
+    async def project_topology_async(self, view="agent"):
+        return self.project_topology(view, await self.topology_snapshot())
+
+    def project_topology(self, view="agent", snapshot=None):
+        snapshot = snapshot if snapshot is not None else self.topology.snapshot()
         snapshot["view"] = view
         if view == "god":
             if self.controller is None:
@@ -482,8 +570,11 @@ class Server(AsyncMCPServer):
                 }
         return snapshot
 
-    def stream_authorized(self, headers, principal):
-        return headers is None or self.policy.authenticate(headers) == principal
+    async def stream_authorized(self, headers, principal):
+        return (
+            headers is None
+            or await self.policy.authenticate_async(headers, self.auth_files) == principal
+        )
 
     async def events(self, view="agent", headers=None, principal=None):
         previous = None
@@ -492,9 +583,9 @@ class Server(AsyncMCPServer):
             for _ in range(
                 60
             ):  # Re-authorize at least every minute; bounded per-connection lifetime.
-                if not self.stream_authorized(headers, principal):
+                if not await self.stream_authorized(headers, principal):
                     return
-                s = self.project_topology(view)
+                s = await self.project_topology_async(view)
                 # Controller changes also invalidate the authorised God view.
                 revision = json.dumps([s["revision"], s.get("controller")], sort_keys=True)
                 if previous != revision:
@@ -512,9 +603,9 @@ class Server(AsyncMCPServer):
         self.streams += 1
         try:
             for _ in range(30):
-                if not self.stream_authorized(headers, principal):
+                if not await self.stream_authorized(headers, principal):
                     return
-                page = self.log_store.page(node, limit=1)
+                page = await self.log_page(node, limit=1)
                 state = (page["data"]["revision"], page["error_code"], page["generation"])
                 if state != previous:
                     kind = "logs.snapshot" if previous is None else "logs.changed"
@@ -538,7 +629,7 @@ class Server(AsyncMCPServer):
         try:
             async with asyncio.timeout(60):
                 while True:
-                    if not self.stream_authorized(headers, principal):
+                    if not await self.stream_authorized(headers, principal):
                         return
                     event = self.activity.changed
                     data = self.activity.snapshot(self.topology.inventory["generation"])
@@ -584,40 +675,44 @@ class Server(AsyncMCPServer):
             return {"error_code": "backend_not_configured", "data": None}
         if self.controller.lock.locked():
             return self.controller.response("mutation_in_progress")
-        intents = self.controller.state.setdefault("target_intents", {})
-        key = args["idempotency_key"]
-        old = intents.get(key)
-        if old and old["request"] != args:
-            return self.controller.response("idempotency_conflict")
-        if old:
-            if (
-                key not in self.controller.state["results"]
-                and old.get("phase", "completed") == "completed"
-            ):
-                return self.controller.response("idempotency_expired")
-            chosen = old["scenario"]
-        else:
-            if self.controller.state["state"] != "baseline":
-                return self.controller.response(
-                    "fault_conflict"
-                    if self.controller.state["state"] == "active"
-                    else "reconciliation_required"
-                )
-            if key in self.controller.state["results"]:
+        async with self.controller.lock:
+            intents = self.controller.state.setdefault("target_intents", {})
+            key = args["idempotency_key"]
+            old = intents.get(key)
+            if old and old["request"] != args:
                 return self.controller.response("idempotency_conflict")
-            chosen = secrets.choice(choices)
-            intents[key] = {"request": args, "scenario": chosen, "phase": "selected"}
-            while len(intents) > 128:
-                intents.pop(next(iter(intents)))
-            try:
-                self.controller.save()
-            except OSError:
-                intents.pop(key, None)
-                return self.controller.response("persistence_failed")
-        return await self.controller.apply(chosen, key, principal)
+            if old:
+                if (
+                    key not in self.controller.state["results"]
+                    and old.get("phase", "completed") == "completed"
+                ):
+                    return self.controller.response("idempotency_expired")
+                chosen = old["scenario"]
+            else:
+                if self.controller.state["state"] != "baseline":
+                    return self.controller.response(
+                        "fault_conflict"
+                        if self.controller.state["state"] == "active"
+                        else "reconciliation_required"
+                    )
+                if key in self.controller.state["results"]:
+                    return self.controller.response("idempotency_conflict")
+                chosen = secrets.choice(choices)
+                intents[key] = {"request": args, "scenario": chosen, "phase": "selected"}
+                while len(intents) > 128:
+                    intents.pop(next(iter(intents)))
+                try:
+                    await self.controller.persist()
+                except asyncio.CancelledError:
+                    # Selected choice is durable; cancellation never rerolls it.
+                    raise
+                except OSError:
+                    intents.pop(key, None)
+                    return self.controller.response("persistence_failed")
+            return await self.controller.apply_locked(chosen, key, principal)
 
     async def browser_fault(self, method, path, headers, body):
-        p = self.policy.authenticate(headers)
+        p = await self.policy.authenticate_async(headers, self.auth_files)
         if not p or "god" not in p.roles:
             return self.response(403, {"error_code": "authorization_denied"})
         if method != "POST":
@@ -675,7 +770,7 @@ class Server(AsyncMCPServer):
         try:
             previous = None
             for _ in range(60):
-                if not self.stream_authorized(headers, principal):
+                if not await self.stream_authorized(headers, principal):
                     return
                 store = self.observer
                 if store:
@@ -699,6 +794,16 @@ class Server(AsyncMCPServer):
             self.streams -= 1
 
     async def handle_http_request_async(self, *, method, path, headers, body, peer):
+        try:
+            return await self._handle_http(
+                method=method, path=path, headers=headers, body=body, peer=peer
+            )
+        except OSError as exc:
+            if str(exc) == "file_io_busy":
+                return self.response(503, {"error_code": "file_io_busy"})
+            raise
+
+    async def _handle_http(self, *, method, path, headers, body, peer):
         target = urlsplit(path)
         path = target.path
         if path in {"/api/v1/faults/apply", "/api/v1/faults/reset"}:
@@ -711,7 +816,7 @@ class Server(AsyncMCPServer):
             return self.response(
                 200, {"status": "ready", "scope": "management", "runtime_backend": "not_configured"}
             )
-        p = self.policy.authenticate(headers)
+        p = await self.policy.authenticate_async(headers, self.auth_files)
         if p is None:
             return self.response(
                 401,
@@ -757,7 +862,7 @@ class Server(AsyncMCPServer):
             if view == "god" and "god" not in p.roles:
                 return self.response(403, {"error_code": "authorization_denied"})
             if path == "/api/v1/topology":
-                return self.response(200, self.project_topology(view))
+                return self.response(200, await self.project_topology_async(view))
             if self.streams >= 16:
                 return self.response(503, {"error_code": "stream_limit"})
             return MCPHTTPResponse(
@@ -808,7 +913,7 @@ class Server(AsyncMCPServer):
                 limit_text = query.get("limit", ["100"])[0]
                 if not re.fullmatch(r"[0-9]{1,3}", limit_text):
                     raise ValueError("invalid_limit")
-                result = self.log_store.page(node, int(limit_text), query.get("cursor", [None])[0])
+                result = await self.log_page(node, int(limit_text), query.get("cursor", [None])[0])
             except ValueError as exc:
                 code = (
                     str(exc)
@@ -873,9 +978,7 @@ class Server(AsyncMCPServer):
         config_match = re.fullmatch(r"/api/v1/nodes/([a-z0-9]+)/config(?:/([a-z.]+))?", path)
         if config_match:
             node, name = config_match.groups()
-            status, payload = baseline(
-                self.topology, self.config_root, node, name, self.policy.credentials.values()
-            )
+            status, payload = await self.configuration(node, name)
             return self.response(status, payload)
         if path == "/api/v1/activity":
             return self.response(200, self.activity.snapshot(self.topology.inventory["generation"]))
@@ -898,7 +1001,9 @@ class Server(AsyncMCPServer):
                 self.topology.envelope(
                     "get_node",
                     node,
-                    data=next(n for n in self.topology.snapshot()["nodes"] if n["id"] == node),
+                    data=next(
+                        n for n in (await self.topology_snapshot())["nodes"] if n["id"] == node
+                    ),
                 ),
             )
         # Exact asset allow-list. No arbitrary path or source map serving.
@@ -909,7 +1014,12 @@ class Server(AsyncMCPServer):
         }
         if path in filenames:
             file = self.assets / filenames[path]
-            if file.exists():
+            try:
+                if path not in self.asset_cache:
+                    self.asset_cache[path] = await self.files.run(file.read_bytes)
+            except FileNotFoundError:
+                return self.response(404, {"error_code": "not_found"})
+            else:
                 mime = {
                     "html": "text/html; charset=utf-8",
                     "js": "text/javascript",
@@ -917,7 +1027,7 @@ class Server(AsyncMCPServer):
                 }[file.suffix[1:]]
                 return MCPHTTPResponse(
                     200,
-                    file.read_bytes(),
+                    self.asset_cache[path],
                     mime,
                     (
                         ("Cache-Control", "no-cache"),

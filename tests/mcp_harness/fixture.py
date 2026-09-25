@@ -2,6 +2,8 @@
 
 import asyncio
 import os
+import threading
+import time
 from pathlib import Path
 
 from minicore_mcp.model import Topology
@@ -13,9 +15,25 @@ from umcp_shared import MCPHTTPResponse
 class DelayedServer(Server):
     # Test-only metrics and fixed event bursts; never shipped in runtime images.
     burst_slots = 0
+    slow_started = threading.Event()
+    slow_installed = False
 
     async def handle_http_request_async(self, **request):
         path = request["path"]
+        if path == "/fixture/slow-file":
+            if not self.slow_installed:
+                original = self.log_store.page
+
+                def slow(*args, **kwargs):
+                    self.slow_started.set()
+                    time.sleep(0.8)
+                    return original(*args, **kwargs)
+
+                self.log_store.page = slow
+                self.slow_installed = True
+            return self.response(200, {"armed": True})
+        if path == "/fixture/slow-file-status":
+            return self.response(200, {"started": self.slow_started.is_set()})
         if path == "/fixture/status":
             return self.response(
                 200,

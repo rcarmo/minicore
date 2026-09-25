@@ -68,6 +68,7 @@ def main():
         finally:
             if observer:
                 await observer.close()
+            await server.close_files()
 
     asyncio.run(run())
 

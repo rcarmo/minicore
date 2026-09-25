@@ -14,12 +14,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "mcp-service/src"))
+from minicore_mcp.file_io import FileIO  # noqa: E402
 from minicore_mcp.host_faults import catalogue, commands, decode, endpoints  # noqa: E402
 from minicore_mcp.model import Topology  # noqa: E402
 
 inventory = Topology(ROOT / "inventory/topology.json", ROOT / "runtime/observations.json").inventory
 specs = catalogue(inventory)
 lock = asyncio.Lock()
+files = FileIO(workers=1, capacity=2)
 JOURNAL = ROOT / "runtime/host-fault-journal/state.json"
 
 
@@ -191,7 +193,7 @@ async def execute(value):
     spec = specs[value["scenario"]]
     action = value["action"]
     effect = spec["effect"]
-    journal = ownership()
+    journal = await files.run(ownership)
     if action == "reset" and (journal is None or journal["scenario"] != value["scenario"]):
         return {"ok": True, "verified": True, "error_code": None}
     if action == "apply" and journal and journal["scenario"] != value["scenario"]:
@@ -202,7 +204,7 @@ async def execute(value):
         baseline = all(before) if effect in {"stop", "link_down"} else not any(before)
         if not baseline:
             return {"ok": False, "verified": False, "error_code": "baseline_unverified"}
-        save_ownership({"scenario": value["scenario"], "phase": "applying"})
+        await files.run(save_ownership, {"scenario": value["scenario"], "phase": "applying"})
     cmds = commands(inventory, value["scenario"], action)
     for index, argv in enumerate(cmds):
         if before[index] == desired:
@@ -213,9 +215,9 @@ async def execute(value):
     verified = all(v == desired for v in await inspect(spec, owned=True))
     if verified:
         if action == "reset":
-            clear_ownership()
+            await files.run(clear_ownership)
         else:
-            save_ownership({"scenario": value["scenario"], "phase": "active"})
+            await files.run(save_ownership, {"scenario": value["scenario"], "phase": "active"})
     return {
         "ok": verified,
         "verified": verified,
@@ -270,16 +272,22 @@ async def client(reader, writer):
 
 async def main():
     path = ROOT / "runtime/host-control/fault.sock"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        path.unlink()
+
+    def prepare():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.unlink(missing_ok=True)
+
+    await files.run(prepare)
     server = await asyncio.start_unix_server(client, str(path), limit=2048)
-    os.chmod(path, 0o660)
+    await files.run(os.chmod, path, 0o660)
     # Provisioned setgid directory supplies GID 10001 without a root daemon.
-    if path.stat().st_gid != 10001:
+    if (await files.run(path.stat)).st_gid != 10001:
         raise RuntimeError("Provision host-control directory with group 10001")
-    async with server:
-        await server.serve_forever()
+    try:
+        async with server:
+            await server.serve_forever()
+    finally:
+        await files.close()
 
 
 if __name__ == "__main__":

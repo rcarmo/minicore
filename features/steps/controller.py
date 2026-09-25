@@ -427,3 +427,256 @@ def invalid_audit_safe(c):
         and "private-secret-value" not in json.dumps(entries)
         and "g" * 40 not in json.dumps(entries)
     )
+
+
+@when("a controller save is delayed while applying a fixed fault")
+def async_slow_save(c):
+    import threading
+    import time
+
+    original = c.controller.save
+    began = threading.Event()
+    finished = threading.Event()
+
+    def delayed():
+        began.set()
+        time.sleep(0.15)
+        original()
+        finished.set()
+
+    async def run():
+        async def ticker():
+            await asyncio.sleep(0.02)
+            c.loop_free = began.is_set() and not finished.is_set()
+            c.lock_held = c.controller.lock.locked()
+
+        tick = asyncio.create_task(ticker())
+        with patch.object(c.controller, "save", side_effect=delayed):
+            result = await c.controller.apply("core-link-failure", "async-apply-key", "god")
+        await tick
+        assert result["error_code"] is None, result
+
+    asyncio.run(run())
+
+
+@then("loop timers run while the write is pending and the mutation lock stays held")
+def slow_save_ok(c):
+    assert c.loop_free and c.lock_held
+
+
+@when("God cancels an apply while its intent write is pending")
+def cancel_intent(c):
+    import threading
+    import time
+
+    began = threading.Event()
+    finished = threading.Event()
+    original = c.controller.save
+
+    def delayed():
+        if c.controller.state["state"] == "applying":
+            began.set()
+            time.sleep(0.16)
+        original()
+        finished.set()
+
+    async def run():
+        with patch.object(c.controller, "save", side_effect=delayed):
+            task = asyncio.create_task(
+                c.controller.apply("core-link-failure", "cancel-write-key", "god")
+            )
+            await asyncio.sleep(0.03)
+            c.intent_running = began.is_set() and not finished.is_set()
+            task.cancel()
+            await asyncio.sleep(0.02)
+            c.intent_locked = c.controller.lock.locked()
+            result = await asyncio.gather(task, return_exceptions=True)
+            c.intent_cancelled = isinstance(result[0], asyncio.CancelledError)
+        c.intent_disk = json.loads((c.control_dir / "state.json").read_text())
+
+    asyncio.run(run())
+
+
+@then("no node change occurs and recovery state is durable before the lock is released")
+def cancelled_intent_ok(c):
+    assert c.intent_running and c.intent_locked and c.intent_cancelled and not c.executor.calls
+    assert not c.controller.lock.locked() and c.intent_disk["state"] == "reconciliation_required"
+
+
+@when("God cancels a reset while its final verified state is being written")
+def cancel_reset_write(c):
+    import threading
+    import time
+
+    asyncio.run(c.controller.apply("core-link-failure", "before-async-reset", "god"))
+    original = c.controller.save
+    began = threading.Event()
+    finished = threading.Event()
+
+    def delayed():
+        if c.controller.state["state"] == "baseline":
+            began.set()
+            time.sleep(0.16)
+        original()
+        if began.is_set():
+            finished.set()
+
+    async def run():
+        with patch.object(c.controller, "save", side_effect=delayed):
+            task = asyncio.create_task(c.controller.reset("async-reset-key", "god"))
+            deadline = asyncio.get_running_loop().time() + 1
+            while not began.is_set() and asyncio.get_running_loop().time() < deadline:
+                await asyncio.sleep(0.001)
+            c.gen_pending = c.topology.inventory["generation"]
+            c.reset_pending = not finished.is_set()
+            task.cancel()
+            await asyncio.sleep(0.02)
+            c.reset_locked = c.controller.lock.locked()
+            await asyncio.gather(task, return_exceptions=True)
+        c.reset_calls = len(c.executor.calls)
+        c.final_reset = await c.controller.reset("async-reset-key", "god")
+        c.no_reset_again = len(c.executor.calls) == c.reset_calls
+
+    asyncio.run(run())
+
+
+@then("generation advances only after persistence and the reset key remains replayable once")
+def reset_commit_ok(c):
+    assert c.gen_pending == 1 and c.reset_pending and c.reset_locked
+    assert (
+        c.final_reset["error_code"] is None
+        and c.final_reset["data"]["generation"] == 2
+        and c.topology.inventory["generation"] == 2
+        and c.no_reset_again
+    ), c.final_reset
+
+
+@when("the controller state is changed while a captured save snapshot is waiting")
+def immutable_save(c):
+    import threading
+    import time
+
+    assert hasattr(c.controller, "persist"), "async persistence not implemented"
+
+    async def run():
+        began = threading.Event()
+        # Delay actual write using a shared filesystem boundary, not the snapshot constructor.
+        import os
+
+        original_replace = os.replace
+
+        def delayed(source, target):
+            began.set()
+            time.sleep(0.06)
+            return original_replace(source, target)
+
+        c.controller.state["error_code"] = "captured"
+        with patch("minicore_mcp.faults.os.replace", side_effect=delayed):
+            task = asyncio.create_task(c.controller.persist())
+            while not began.is_set():
+                await asyncio.sleep(0.001)
+            c.controller.state["error_code"] = "later"
+            await task
+        c.snapshot_disk = json.loads((c.control_dir / "state.json").read_text())
+
+    asyncio.run(run())
+
+
+@then("the disk receives only the captured state")
+def immutable_saved(c):
+    assert c.snapshot_disk["error_code"] == "captured"
+
+
+@when("the final reset file operation is held before completion")
+def uncommitted_reset(c):
+    import threading
+
+    async def run():
+        await c.controller.apply("core-link-failure", "published-apply-001", "god")
+        entered = threading.Event()
+        release = threading.Event()
+        original = c.controller.save
+
+        def held():
+            if c.controller.state["state"] == "baseline":
+                entered.set()
+                release.wait(1)
+            original()
+
+        with patch.object(c.controller, "save", side_effect=held):
+            task = asyncio.create_task(c.controller.reset("published-reset-001", "god"))
+            while not entered.is_set():
+                await asyncio.sleep(0.001)
+            c.before_commit = c.controller.get_state()
+            release.set()
+            c.committed_reset = await task
+
+    asyncio.run(run())
+
+
+@then("readers still see resetting at the old generation until the commit finishes")
+def published_after_commit(c):
+    assert (
+        c.before_commit["state"] == "resetting"
+        and c.before_commit["generation"] == 1
+        and c.before_commit["verified"] is False
+    ), c.before_commit
+    assert (
+        c.committed_reset["data"]["generation"] == 2
+        and c.controller.get_state()["state"] == "baseline"
+    )
+
+
+@when("a targeted dice request is cancelled during its durable selection write")
+def cancel_dice_save(c):
+    import threading
+
+    from minicore_mcp.host_faults import catalogue
+
+    c.controller.scenarios.update(catalogue(c.topology.inventory))
+    c.server.controller = c.controller
+
+    async def run():
+        entered = threading.Event()
+        release = threading.Event()
+        original = c.controller.save
+        selections = []
+
+        def choose(values):
+            selections.append(True)
+            return values[0]
+
+        def held():
+            entered.set()
+            release.wait(1)
+            original()
+
+        args = {
+            "mode": "dice",
+            "target_type": "node",
+            "target_id": "ce1",
+            "idempotency_key": "cancel-dice-001",
+        }
+        with patch("minicore_mcp.server.secrets.choice", side_effect=choose):
+            with patch.object(c.controller, "save", side_effect=held):
+                task = asyncio.create_task(c.server.targeted_fault(args, "god"))
+                while not entered.is_set():
+                    await asyncio.sleep(0.001)
+                task.cancel()
+                await asyncio.sleep(0.01)
+                c.selection_locked = c.controller.lock.locked()
+                c.overlap_dice = await c.controller.reset("overlap-reset-001", "god")
+                release.set()
+                await asyncio.gather(task, return_exceptions=True)
+            c.dice_retry = await c.server.targeted_fault(args, "god")
+        c.dice_selections = len(selections)
+
+    asyncio.run(run())
+
+
+@then("a retry uses the same chosen scenario and executes it once")
+def dice_no_reroll(c):
+    assert c.selection_locked and c.overlap_dice["error_code"] == "mutation_in_progress"
+    assert (
+        c.dice_retry["error_code"] is None and c.dice_selections == 1 and len(c.executor.calls) == 1
+    )

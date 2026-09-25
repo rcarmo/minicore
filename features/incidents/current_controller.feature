@@ -85,3 +85,27 @@ Feature: Execute only fixed God scenarios with durable recovery state
     And the published generation file disappears
     And the controller process restarts
     Then it exposes no verified baseline and retains no replayable success
+
+  Scenario: Slow durable controller writes leave the event loop responsive
+    When a controller save is delayed while applying a fixed fault
+    Then loop timers run while the write is pending and the mutation lock stays held
+
+  Scenario: Cancelled apply intent drains its file write before releasing the lock
+    When God cancels an apply while its intent write is pending
+    Then no node change occurs and recovery state is durable before the lock is released
+
+  Scenario: Cancellation during final reset persistence commits the verified outcome once
+    When God cancels a reset while its final verified state is being written
+    Then generation advances only after persistence and the reset key remains replayable once
+
+  Scenario: A worker writes an immutable controller snapshot
+    When the controller state is changed while a captured save snapshot is waiting
+    Then the disk receives only the captured state
+
+  Scenario: Published controller state never exposes uncommitted reset success
+    When the final reset file operation is held before completion
+    Then readers still see resetting at the old generation until the commit finishes
+
+  Scenario: Cancellation preserves a selected dice intent without rerolling
+    When a targeted dice request is cancelled during its durable selection write
+    Then a retry uses the same chosen scenario and executes it once

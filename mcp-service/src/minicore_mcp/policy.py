@@ -1,6 +1,8 @@
 """Two server-derived roles. Bounded credential reload, fail closed on rotation errors."""
 
+import asyncio
 import base64
+import copy
 import hmac
 import json
 from pathlib import Path
@@ -15,6 +17,7 @@ class Policy:
     def __init__(self, profile: str, token_file: Path):
         if profile not in {"private", "authenticated"}:
             raise ValueError("Unknown exposure profile")
+        self._reload_lock = asyncio.Lock()
         self.profile = profile
         self.token_file = token_file
         self.required_file = token_file.exists() or profile == "authenticated"
@@ -66,8 +69,26 @@ class Policy:
         if self.profile == "authenticated" and "operator" not in credentials:
             raise ValueError("Authenticated deployment requires Operator credential")
 
+    async def authenticate_async(self, headers, files):
+        async with self._reload_lock:
+            clone = copy.copy(self)
+            clone.credentials = dict(self.credentials)
+            try:
+                await files.run(clone.reload)
+            except OSError:
+                return None
+            self.credentials.clear()
+            self.credentials.update(clone.credentials)
+            self.required_file = clone.required_file
+            self._fingerprint = clone._fingerprint
+            self.invalid = clone.invalid
+            return self.authenticate_cached(headers)
+
     def authenticate(self, headers):
         self.reload()
+        return self.authenticate_cached(headers)
+
+    def authenticate_cached(self, headers):
         if self.invalid:
             return None
         auth = headers.get("authorization", "")

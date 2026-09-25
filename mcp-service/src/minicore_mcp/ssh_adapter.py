@@ -7,9 +7,12 @@ import signal
 import time
 from pathlib import Path
 
+from .file_io import FileIO
+
 
 class SSHAdapter:
     def __init__(self, topology, directory: Path, *, fault=False):
+        self.files = FileIO(workers=1, capacity=32)
         self.topology = topology
         self.key = directory / ("fault" if fault else "diagnostic")
         self.identity = "root" if fault else "diagnostic"
@@ -31,7 +34,11 @@ class SSHAdapter:
         info = self.topology.nodes.get(node)
         if not info or not info.get("management_address"):
             return result | {"error_code": "unsupported_node"}
-        if not self.key.exists() or not self.known_hosts.exists():
+        try:
+            ready = await self.files.run(lambda: self.key.exists() and self.known_hosts.exists())
+        except OSError:
+            return result | {"error_code": "file_io_busy"}
+        if not ready:
             return result | {"error_code": "backend_not_configured"}
         proc = None
         readers = []

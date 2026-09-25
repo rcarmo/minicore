@@ -7,6 +7,8 @@ import os
 import re
 from datetime import datetime, timezone
 
+from .file_io import FileIO
+
 SCENARIOS = {
     "core-link-failure": {"node_id": "p1", "interface": "to-p2", "parameters": {}},
     "customer-bgp-failure": {"node_id": "ce1", "interface": "to-pe1", "parameters": {}},
@@ -20,6 +22,7 @@ SCENARIOS = {
 
 class FaultController:
     def __init__(self, topology, executor, directory, catalogue=None):
+        self.files = FileIO(workers=1, capacity=1)
         self.scenarios = SCENARIOS | (catalogue or {})
         self.topology = topology
         self.executor = executor
@@ -126,11 +129,13 @@ class FaultController:
                     error_code="corrupt_state",
                 )
         self.topology.inventory["generation"] = self.state["generation"]
+        self._durable_state = copy.deepcopy(self.state)
+        self._committing = None
 
     def get_state(self):
         return {
             k: copy.deepcopy(v)
-            for k, v in self.state.items()
+            for k, v in (self._committing if self._committing is not None else self.state).items()
             if k not in {"results", "audit", "target_intents"}
         }
 
@@ -168,7 +173,33 @@ class FaultController:
             return self.response("idempotency_conflict")
         return copy.deepcopy(previous["response"])
 
-    def record(self, operation, scenario, key, principal, error):
+    async def persist(self, *, defer_cancel=False):
+        # Worker sees one detached immutable journal, never mutable live state.
+        snapshot = copy.copy(self)
+        snapshot.state = copy.deepcopy(self.state)
+        task = asyncio.create_task(self.files.run(snapshot.save))
+        cancelled = False
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                cancelled = True
+            except Exception:
+                break
+        task.result()
+        self._durable_state = copy.deepcopy(snapshot.state)
+        if cancelled and not defer_cancel:
+            raise asyncio.CancelledError()
+        return cancelled
+
+    async def interrupted(self):
+        self.state.update(state="reconciliation_required", verified=False, error_code="interrupted")
+        try:
+            await self.persist(defer_cancel=True)
+        except OSError:
+            pass  # previously persisted intent already requires restart reconciliation
+
+    async def record(self, operation, scenario, key, principal, error):
         previous_results = copy.deepcopy(self.state["results"])
         previous_audit = copy.deepcopy(self.state["audit"])
         previous_intents = copy.deepcopy(self.state.get("target_intents", {}))
@@ -194,13 +225,16 @@ class FaultController:
         # 128 retained idempotency records. Keys outside this window are not retry-safe.
         while len(self.state["results"]) > 128:
             self.state["results"].pop(next(iter(self.state["results"])))
+        self._committing = copy.deepcopy(self._durable_state)
         try:
-            self.save()
+            await self.persist(defer_cancel=True)
         except OSError:
             self.state["results"] = previous_results
             self.state["audit"] = previous_audit
             self.state["target_intents"] = previous_intents
             raise
+        finally:
+            self._committing = None
         return result
 
     async def apply(self, scenario, key, principal):
@@ -209,52 +243,57 @@ class FaultController:
         if self.lock.locked():
             return self.response("mutation_in_progress")
         async with self.lock:
-            previous = self.replay("apply", scenario, key)
-            if previous is not None:
-                return previous
-            if self.state["state"] == "active":
-                return self.response("fault_conflict")
-            if self.state["state"] != "baseline":
-                return self.response("reconciliation_required")
+            return await self.apply_locked(scenario, key, principal)
+
+    async def apply_locked(self, scenario, key, principal):
+        if not self.lock.locked():
+            raise RuntimeError("mutation_lock_required")
+        previous = self.replay("apply", scenario, key)
+        if previous is not None:
+            return previous
+        if self.state["state"] == "active":
+            return self.response("fault_conflict")
+        if self.state["state"] != "baseline":
+            return self.response("reconciliation_required")
+        try:
+            if not await self.executor.verify_baseline():
+                return self.response("baseline_unverified")
+            self.state.update(
+                state="applying",
+                scenario_id=scenario,
+                verified=False,
+                **self.scenarios[scenario],
+            )
+            await self.persist()
+        except asyncio.CancelledError:
+            await self.interrupted()
+            raise
+        except OSError:
+            return self.response("persistence_failed")
+        try:
+            result = await self.executor.mutate(scenario, "apply")
+            if not result.get("ok") or not result.get("verified"):
+                raise RuntimeError("verification_failed")
+            self.state.update(state="active", verified=True, error_code=None)
+            return await self.record("apply", scenario, key, principal, None)
+        except asyncio.CancelledError:
+            await self.interrupted()
+            raise
+        except Exception:
             try:
-                if not await self.executor.verify_baseline():
-                    return self.response("baseline_unverified")
-                self.state.update(
-                    state="applying",
-                    scenario_id=scenario,
-                    verified=False,
-                    **self.scenarios[scenario],
-                )
-                self.save()
+                rollback = await self.executor.mutate(scenario, "reset")
+                good = rollback.get("ok") and await self.executor.verify_baseline()
+            except Exception:
+                good = False
+            self.state.update(
+                state="baseline" if good else "reconciliation_required",
+                verified=bool(good),
+                error_code="apply_failed",
+            )
+            try:
+                return await self.record("apply", scenario, key, principal, "apply_failed")
             except OSError:
                 return self.response("persistence_failed")
-            try:
-                result = await self.executor.mutate(scenario, "apply")
-                if not result.get("ok") or not result.get("verified"):
-                    raise RuntimeError("verification_failed")
-                self.state.update(state="active", verified=True, error_code=None)
-                return self.record("apply", scenario, key, principal, None)
-            except asyncio.CancelledError:
-                self.state.update(
-                    state="reconciliation_required", verified=False, error_code="interrupted"
-                )
-                self.save()
-                raise
-            except Exception:
-                try:
-                    rollback = await self.executor.mutate(scenario, "reset")
-                    good = rollback.get("ok") and await self.executor.verify_baseline()
-                except Exception:
-                    good = False
-                self.state.update(
-                    state="baseline" if good else "reconciliation_required",
-                    verified=bool(good),
-                    error_code="apply_failed",
-                )
-                try:
-                    return self.record("apply", scenario, key, principal, "apply_failed")
-                except OSError:
-                    return self.response("persistence_failed")
 
     async def reset(self, key, principal):
         if self.lock.locked():
@@ -272,12 +311,15 @@ class FaultController:
                 and await self.executor.verify_baseline()
             ):
                 try:
-                    return self.record("reset", None, key, principal, None)
+                    return await self.record("reset", None, key, principal, None)
                 except OSError:
                     return self.response("persistence_failed")
             try:
                 self.state.update(state="resetting", verified=False)
-                self.save()
+                await self.persist()
+            except asyncio.CancelledError:
+                await self.interrupted()
+                raise
             except OSError:
                 return self.response("persistence_failed")
             try:
@@ -312,14 +354,11 @@ class FaultController:
                     self.state.pop(k, None)
                 if not was_baseline:
                     self.state["generation"] += 1
-                response = self.record("reset", None, key, principal, None)
+                response = await self.record("reset", None, key, principal, None)
                 self.topology.inventory["generation"] = self.state["generation"]
                 return response
             except asyncio.CancelledError:
-                self.state.update(
-                    state="reconciliation_required", verified=False, error_code="interrupted"
-                )
-                self.save()
+                await self.interrupted()
                 raise
             except Exception:
                 self.state["generation"] = old_generation
@@ -328,6 +367,6 @@ class FaultController:
                     state="reconciliation_required", verified=False, error_code="reset_failed"
                 )
                 try:
-                    return self.record("reset", None, key, principal, "reset_failed")
+                    return await self.record("reset", None, key, principal, "reset_failed")
                 except OSError:
                     return self.response("persistence_failed")

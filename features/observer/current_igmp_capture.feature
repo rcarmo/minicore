@@ -60,3 +60,8 @@ Feature: Limit live capture to inventoried IGMP control messages
     Given a mapped IGMP capture source with a volatile store
     When the callback receives a frame queued for seventy seconds with stable clocks
     Then no report record is stored and an input error counter increases
+
+  Scenario: Callback processing cannot extend a kernel timestamp lifetime
+    Given a mapped IGMP capture source with a volatile store
+    When the monotonic clock advances between timestamp validation and ingestion
+    Then the retained report uses the original acquisition timestamp

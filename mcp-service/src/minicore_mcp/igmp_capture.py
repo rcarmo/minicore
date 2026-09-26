@@ -180,7 +180,7 @@ class Capture:
             self.ingest(
                 binding,
                 raw,
-                acquired=self.clock() - max(0, age),
+                acquired=min(acquired, self.clock()),
                 checksum_partial=partial,
                 truncated=bool(flags & (socket.MSG_TRUNC | socket.MSG_CTRUNC)),
             )

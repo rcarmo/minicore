@@ -665,7 +665,9 @@ Then(
 Then(
   "a successful automatic poll after a 503 clears the routing error and restores comparison",
   async ({ page }) => {
-    await page.clock.install();
+    const now = new Date();
+    await page.clock.install({ time: now });
+    await page.clock.pauseAt(now);
     const fixture = await routingFixture(page);
     let call = 0;
     await page.route("**/api/v1/routing?*", async (route) => {

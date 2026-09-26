@@ -19,7 +19,7 @@ Implemented scenarios execute via `make acceptance`: Behave for Python contracts
 | [Exercise the published Compose endpoint with an independent MCP SDK](../../features/integration/mcp_independent_client.feature) | external | live lab | 1 |
 | [Verify MCP transport with independent clients and hostile wire inputs](../../features/integration/mcp_protocol.feature) | implemented | python | 25 |
 | [Discover current host counter mappings for inventory data interfaces](../../features/observer/current_host_observer.feature) | implemented | python | 12 |
-| [Limit live capture to inventoried IGMP control messages](../../features/observer/current_igmp_capture.feature) | implemented | python | 18 |
+| [Limit live capture to inventoried IGMP control messages](../../features/observer/current_igmp_capture.feature) | implemented | python | 19 |
 | [Decode bounded recent IGMP signalling from Ethernet IPv4 frames](../../features/observer/current_igmp.feature) | implemented | python | 20 |
 | [Retain only bounded recent observer records in memory](../../features/observer/current_memory.feature) | implemented | python | 20 |
 | [Serve shared volatile observer data through HTTP MCP and SSE](../../features/observer/current_observer_api.feature) | implemented | python | 12 |
@@ -193,6 +193,7 @@ Source: [features/observer/current_igmp_capture.feature](../../features/observer
 - L44: An IGMP storm is bounded without persisting packets (1 case)
 - L49: A wall-clock step invalidates queued capture timestamps (2 cases)
 - L59: Kernel timestamps determine record age before callback processing (1 case)
+- L64: Callback processing cannot extend a kernel timestamp lifetime (1 case)
 
 ## Decode bounded recent IGMP signalling from Ethernet IPv4 frames
 Source: [features/observer/current_igmp.feature](../../features/observer/current_igmp.feature) · runner: python

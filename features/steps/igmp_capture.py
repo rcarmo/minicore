@@ -339,3 +339,41 @@ def kernel_old(c):
             c.capture.close()
 
     asyncio.run(run())
+
+
+@when("the monotonic clock advances between timestamp validation and ingestion")
+def callback_latency(c):
+    module, Tap = clock_taps(c)
+
+    async def run():
+        loop = asyncio.get_running_loop()
+        with (
+            patch.object(module, "open_tap", side_effect=lambda *_: Tap()),
+            patch.object(module.time, "time_ns", return_value=1000_000_000_000),
+            patch.object(loop, "add_reader"),
+            patch.object(loop, "remove_reader"),
+        ):
+            c.capture.reconcile([c.binding])
+            c.fake_taps[-1].queue.append(999.0)
+            # Offset checks and acquisition conversion sample 100, then a scheduler
+            # delay advances the next clock read. Never stamp the old packet 100.
+            calls = 0
+
+            def advancing():
+                nonlocal calls
+                calls += 1
+                return 100.0 if calls <= 4 else 101.0
+
+            c.capture.clock = advancing
+            c.capture_now = 101.0
+            c.capture._ready((c.binding["node"], c.binding["interface"]))
+            c.callback_records = c.capture_store.snapshot("node:host1:igmp")["records"]
+            c.capture.close()
+
+    asyncio.run(run())
+
+
+@then("the retained report uses the original acquisition timestamp")
+def callback_timestamp(c):
+    assert len(c.callback_records) == 1
+    assert c.callback_records[0]["acquired_monotonic"] == 99.0, c.callback_records

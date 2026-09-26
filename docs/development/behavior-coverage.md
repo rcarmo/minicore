@@ -64,7 +64,7 @@ Implemented scenarios execute via `make acceptance`: Behave for Python contracts
 | [Current service access and input boundaries](../../features/security/current_access.feature) | implemented | python | 29 |
 | [Correlate bounded authorization and fixed mutation audit records](../../features/security/current_audit.feature) | implemented | python | 2 |
 | [Isolate MCP execution and cancellation between callers](../../features/security/mcp_execution_isolation.feature) | implemented | python | 12 |
-| [Validate node requests independently of the MCP client](../../features/security/node_dispatch.feature) | implemented | python | 47 |
+| [Validate node requests independently of the MCP client](../../features/security/node_dispatch.feature) | implemented | python | 48 |
 | [Bound SSH execution and reject misleading node results](../../features/security/ssh_failure_handling.feature) | implemented | python | 16 |
 | [Reserve stream admission before transport starts consuming events](../../features/security/stream_admission.feature) | implemented | python | 7 |
 | [Release transport resources for disconnected and slow clients](../../features/security/stream_resources.feature) | implemented | python | 5 |
@@ -385,8 +385,8 @@ Source: [features/security/node_dispatch.feature](../../features/security/node_d
 - L75: Preserve valid empty and down observations without inferring failure (5 cases)
 - L86: Preserve a no-route probe as unavailable rather than fabricated packet loss (1 case)
 - L91: Reject malformed neighbor payloads without breaking valid disabled or idle shapes (4 cases)
-- L101: Preserve valid neighbor payload fixtures for disabled and established or idle states (4 cases)
-- L111: Reject malformed neighbor success payloads returned over SSH (4 cases)
+- L101: Preserve valid neighbor payload fixtures for disabled and established or idle states (5 cases)
+- L112: Reject malformed neighbor success payloads returned over SSH (4 cases)
 
 ## Bound SSH execution and reject misleading node results
 Source: [features/security/ssh_failure_handling.feature](../../features/security/ssh_failure_handling.feature) · runner: python

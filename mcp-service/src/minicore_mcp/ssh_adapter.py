@@ -26,6 +26,9 @@ def valid_neighbors(data, protocol):
             and bool(row["state"])
             for address, row in unicast["peers"].items()
         )
+    data = data.get("neighbors", data)
+    if not isinstance(data, dict):
+        return False
     return all(
         isinstance(address, str)
         and isinstance(rows, list)

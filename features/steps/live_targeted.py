@@ -36,7 +36,12 @@ def target_live_fixture(c):
     assert httpx.get(URL + "/api/v1/view", headers=c.target_headers).json()["fault_control"]
     restore(c)
     c.initial_generation = c.target_restore["data"]["generation"]
-    c.add_cleanup(lambda: restore(c))
+
+    def cleanup():
+        # Preserve the scenario's explicit reset evidence for failure diagnosis.
+        c.cleanup_restore = request(c, "reset", {"idempotency_key": str(uuid4())})
+
+    c.add_cleanup(cleanup)
 
 
 @when("God zaps node pe1 through the browser command endpoint")

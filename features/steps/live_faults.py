@@ -34,12 +34,21 @@ def verified_resets(c):
 
 @then("Operator cannot discover or invoke controller tools or receive controller ground truth")
 def operator_boundary(c):
-    assert len(c.fault_report) == 6  # assertions executed per run inside fault_runs
+    from mcp_harness.wire import OPERATOR
+
+    assert len(c.fault_report) == 6
+    for row in c.fault_report:
+        assert set(row["operator_tools"]) == OPERATOR
+        assert row["operator_call_status"] == 403
+        assert row["operator_has_controller"] is False
 
 
 @then("no fault mutation appears in the ordinary agent activity stream")
 def mutation_hidden(c):
-    assert all(r["fault_verified"] for r in c.fault_report)
+    assert len(c.fault_report) == 6
+    assert all(
+        r["apply_activity_events"] > 0 and r["reset_activity_events"] > 0 for r in c.fault_report
+    )
 
 
 @then("a failure cleanup resets the lab rather than leaving a test fault active")

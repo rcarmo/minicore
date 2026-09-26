@@ -101,7 +101,13 @@ def sdk_errors(c):
 
 @then("a separate God client sees all ten tools without changing the Operator's discovery")
 def sdk_roles(c):
+    from mcp_harness.wire import GOD, OPERATOR
+
     assert {row["role"] for row in c.sdk_evidence} == {"operator", "god"}
+    for row in c.sdk_evidence:
+        expected = OPERATOR | GOD if row["role"] == "god" else OPERATOR
+        assert set(row["discovered_tools"]) == expected
+        assert set(row["operator_tools_after_god"]) == OPERATOR
 
 
 @then("deleting sessions and stopping the fixture leaves no test service or secret files behind")

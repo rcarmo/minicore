@@ -107,6 +107,7 @@ Feature: Validate node requests independently of the MCP client
       | BGP established  |
       | BGP idle         |
       | OSPF established |
+      | OSPF wrapped |
 
   Scenario Outline: Reject malformed neighbor success payloads returned over SSH
     When the SSH adapter receives malformed neighbor success case "<case>"

@@ -64,6 +64,7 @@ async def exercise(url, tokens):
                                 "tool": name,
                                 "is_error": result.isError,
                                 "protocol": init.protocolVersion,
+                                "discovered_tools": sorted(t.name for t in discovered.tools),
                             }
                         )
         async with httpx.AsyncClient() as check:
@@ -77,6 +78,17 @@ async def exercise(url, tokens):
                 json={"jsonrpc": "2.0", "id": 99, "method": "tools/list"},
             )
             assert response.status_code == 404, "SDK did not delete its session"
+    # Verify God discovery has not altered the independent Operator surface.
+    async with httpx.AsyncClient(
+        headers={"Authorization": "Bearer " + tokens["operator"]}, timeout=15
+    ) as http:
+        async with streamable_http_client(url, http_client=http) as (read, write, _):
+            async with ClientSession(read, write) as client:
+                await client.initialize()
+                names = sorted(t.name for t in (await client.list_tools()).tools)
+                assert set(names) == OPERATOR
+                for row in evidence:
+                    row["operator_tools_after_god"] = names
     return evidence
 
 

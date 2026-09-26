@@ -1062,6 +1062,7 @@ def valid_neighbor_case(c, case):
         "BGP established": '{"ipv4Unicast":{"peers":{"10.254.0.2":{"state":"Established","remoteAs":65000}}}}',
         "BGP idle": '{"ipv4Unicast":{"peers":{"10.254.0.2":{"state":"Idle"}}}}',
         "OSPF established": '{"10.254.0.2":[{"ifaceName":"to-p2:10.200.1.2","nbrState":"Full/-"}]}',
+        "OSPF wrapped": '{"neighbors":{"10.254.0.2":[{"ifaceName":"to-p2:10.200.1.2","nbrState":"Full/-"}]}}',
     }
     c.valid_neighbor_source = payloads[case]
     c.valid_neighbor_data = normalise("get_neighbors", c.valid_neighbor_source)

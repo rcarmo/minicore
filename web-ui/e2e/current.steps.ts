@@ -57,7 +57,7 @@ Then(
 );
 Then(
   "schema, node, link and log-page validation reject malformed data rather than rendering invented state",
-  async () => {
+  async ({ page }) => {
     const { validateSnapshot } = await import("../src/topology");
     const { validateLogPage } = await import("../src/logs");
     const snapshot = {
@@ -93,6 +93,83 @@ Then(
         "p1",
       ),
     ).toThrow();
+
+    const topology = await (await page.request.get("/api/v1/topology")).json();
+    await page.route("**/api/v1/topology?*", (route) =>
+      route.fulfill({
+        json: {
+          ...topology,
+          nodes: [
+            ...topology.nodes,
+            {
+              id: "bad-node",
+              label: "INVENTED NODE",
+              role: "router",
+              kind: "router",
+              state: "up",
+              protocols: [],
+              position: { x: 0, y: 0, z: 0 },
+            },
+          ],
+        },
+      }),
+    );
+    await page.goto("/");
+    await expect(page.getByRole("alert")).toHaveText("Invalid topology node");
+    await expect(
+      page.getByText("0 nodes / 0 links", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.locator(".graph-label").filter({ hasText: /^INVENTED NODE$/ }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByText(
+        "Choose a device to browse its state, connections and logs.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+
+    await page.unrouteAll({ behavior: "wait" });
+    await page.goto("about:blank");
+    await page.route(/\/api\/v1\/nodes\/p1\/logs(?:\?.*)?$/, (route) =>
+      route.fulfill({
+        json: {
+          node_id: "p1",
+          generation: topology.generation,
+          collected_at: new Date().toISOString(),
+          status: "ok",
+          error_code: null,
+          truncated: false,
+          data: {
+            revision: "broken",
+            next_cursor: null,
+            source: "container",
+            window_start: null,
+            window_end: null,
+            retained_count: 1,
+            entries: [
+              {
+                id: "invented-row",
+                timestamp: new Date().toISOString(),
+                source: "container",
+                severity: "error",
+                message: 123,
+                truncated: false,
+              },
+            ],
+          },
+        },
+      }),
+    );
+    await page.goto("/#p1");
+    await page.getByRole("button", { name: "Logs", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText(
+      "Logs unavailable: Invalid log entry",
+    );
+    await expect(page.getByText("invented-row", { exact: true })).toHaveCount(
+      0,
+    );
+    await expect(page.locator(".log-entry")).toHaveCount(0);
   },
 );
 
@@ -354,10 +431,12 @@ Then(
     await expect(
       page.getByRole("checkbox", { name: /God mode/ }),
     ).toBeDisabled();
-    await page.route("**/api/v1/view", (r) =>
+    const operatorPage = page;
+    const godPage = await page.context().newPage();
+    await godPage.route("**/api/v1/view", (r) =>
       r.fulfill({ json: { can_god: true } }),
     );
-    await page.route("**/api/v1/topology*", async (r) => {
+    await godPage.route("**/api/v1/topology*", async (r) => {
       const data = await (
         await r.fetch({
           url: "http://127.0.0.1:19123/api/v1/topology?view=agent",
@@ -378,13 +457,21 @@ Then(
         })
         .catch(() => {});
     });
-    await page.reload();
-    const checkbox = page.getByRole("checkbox", { name: /God mode/ });
+    await godPage.goto("/");
+    const checkbox = godPage.getByRole("checkbox", { name: /God mode/ });
     await checkbox.check();
     await checkbox.uncheck();
-    await page.waitForTimeout(1200);
-    await expect(page.getByLabel("Controller ground truth")).toHaveCount(0);
+    await godPage.waitForTimeout(1200);
+    await expect(godPage.getByLabel("Controller ground truth")).toHaveCount(0);
     await expect(checkbox).not.toBeChecked();
+    await expect(
+      operatorPage.getByRole("checkbox", { name: /God mode/ }),
+    ).toBeDisabled();
+    await expect(
+      operatorPage.getByLabel("Controller ground truth"),
+    ).toHaveCount(0);
+    await godPage.unrouteAll({ behavior: "wait" });
+    await godPage.close();
   },
 );
 

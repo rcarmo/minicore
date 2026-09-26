@@ -16,14 +16,14 @@ Feature: Expose Minicore through one application service
     When a customer requests a topology snapshot
     Then the service returns the versioned combined topology model
     When the customer opens the topology event stream
-    Then the same service emits ordered factual topology events
+    Then the same service emits factual topology invalidations
 
   Scenario: Expose MCP separately within the same process
     Given the Python application service is ready
     When an approved external agent connects to the MCP endpoint
     Then the service negotiates Streamable HTTP at the configured MCP path
     And MCP tools remain governed by their diagnostic allow-list
-    And customer UI routes do not expose operator controls
+    And Operator UI routes do not expose God controls
 
   Scenario: Isolate transport failures
     Given the topology snapshot API remains available

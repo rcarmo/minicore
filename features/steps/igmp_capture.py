@@ -230,3 +230,112 @@ def burst_bounded(c):
         and c.capture_store.record_count <= 1024
         and c.capture_store.byte_size <= 8 * 1024 * 1024
     )
+
+
+def clock_taps(c):
+    import socket
+
+    module = api()
+    c.wall = 1000.0
+    c.fake_taps = []
+
+    class Tap:
+        def __init__(self):
+            self.closed = False
+            self.queue = []
+            c.fake_taps.append(self)
+
+        def fileno(self):
+            return 120 + c.fake_taps.index(self)
+
+        def getsockopt(self, *args):
+            return 262144
+
+        def close(self):
+            self.closed = True
+            self.queue.clear()
+
+        def recvmsg(self, *args):
+            if not self.queue:
+                raise BlockingIOError()
+            timestamp = self.queue.pop(0)
+            sec = int(timestamp)
+            anc = [
+                (
+                    socket.SOL_SOCKET,
+                    module.SO_TIMESTAMPNS,
+                    struct.pack("@ll", sec, round((timestamp - sec) * 1e9)),
+                )
+            ]
+            return frame(), anc, 0, ("veth0", 3, 0)
+
+    return module, Tap
+
+
+@when('the capture wall clock steps "{direction}" while a frame is queued')
+def clock_step(c, direction):
+    module, Tap = clock_taps(c)
+
+    async def run():
+        loop = asyncio.get_running_loop()
+        with (
+            patch.object(module, "open_tap", side_effect=lambda *_: Tap()),
+            patch.object(module.time, "time_ns", side_effect=lambda: round(c.wall * 1e9)),
+            patch.object(loop, "add_reader"),
+            patch.object(loop, "remove_reader"),
+        ):
+            c.capture.reconcile([c.binding])
+            key = (c.binding["node"], c.binding["interface"])
+            c.fake_taps[-1].queue.append(c.wall)
+            c.capture_now += 1
+            c.wall += 1 + (120 if direction == "forward" else -120)
+            c.capture._ready(key)
+            c.step_snapshot = c.capture_store.snapshot("node:host1:igmp")
+            c.step_closed = c.fake_taps[0].closed
+            c.step_taps = len(c.capture.taps)
+            c.capture_now += 1
+            c.wall += 1
+            c.capture.reconcile([c.binding])
+            c.fake_taps[-1].queue.append(c.wall)
+            c.capture._ready(key)
+            c.rebound_snapshot = c.capture_store.snapshot("node:host1:igmp")
+            c.capture.close()
+
+    asyncio.run(run())
+
+
+@then("queued frames are discarded and the source becomes unavailable")
+def clock_gap(c):
+    assert c.step_closed and c.step_taps == 0
+    assert (
+        not c.step_snapshot["records"] and c.step_snapshot["source_health"] == "source_unavailable"
+    )
+
+
+@then("a rebound source accepts fresh reports without extending old record age")
+def clock_recovered(c):
+    rows = c.rebound_snapshot["records"]
+    assert len(rows) == 1 and c.rebound_snapshot["source_health"] == "ok"
+    assert rows[0]["acquired_monotonic"] == c.capture_now
+
+
+@when("the callback receives a frame queued for seventy seconds with stable clocks")
+def kernel_old(c):
+    module, Tap = clock_taps(c)
+
+    async def run():
+        loop = asyncio.get_running_loop()
+        with (
+            patch.object(module, "open_tap", side_effect=lambda *_: Tap()),
+            patch.object(module.time, "time_ns", side_effect=lambda: round(c.wall * 1e9)),
+            patch.object(loop, "add_reader"),
+            patch.object(loop, "remove_reader"),
+        ):
+            c.capture.reconcile([c.binding])
+            c.fake_taps[-1].queue.append(c.wall)
+            c.capture_now += 70
+            c.wall += 70
+            c.capture._ready((c.binding["node"], c.binding["interface"]))
+            c.capture.close()
+
+    asyncio.run(run())

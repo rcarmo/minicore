@@ -1,7 +1,7 @@
 @planned
 
 @god @mcp @scenario
-Feature: Control predefined lab faults in God mode
+Feature: Control fixed MCP lab faults in God mode
   As an authorized lab controller
   I want to apply and reset predefined faults
   So that Operator clients can inspect repeatable faults without general administrative access
@@ -14,17 +14,17 @@ Feature: Control predefined lab faults in God mode
   Scenario: List the predefined fault catalogue
     When the caller invokes list_fault_scenarios
     Then the service returns stable IDs for core-link failure, customer-BGP failure, and data-path degradation
-    And each scenario declares only its typed bounded parameters
+    And each scenario declares its availability without accepting caller-selected parameters
     And no implementation command, shell fragment, Docker identifier, credential, or expected diagnosis is returned
 
   Scenario Outline: Apply a predefined fault
-    When the caller invokes apply_fault for <scenario> with valid parameters and a new idempotency key
+    When the caller invokes apply_fault for <scenario> with a new idempotency key
     Then the request enters the applying state
     And the dedicated fault controller executes the fixed mapped operation
     And the server verifies the intended factual state change
     And get_fault_state reports the fault as active to the God principal
     And the audit record links request, principal, scenario, lab generation, and outcome
-    But Operator mode and the customer UI do not receive fault ground truth
+    But Operator mode and the Agent view do not receive fault ground truth
 
     Examples:
       | scenario |
@@ -45,8 +45,8 @@ Feature: Control predefined lab faults in God mode
     And no arbitrary FRR configuration is accepted
 
   Scenario: Data-path degradation remains bounded
-    When the caller applies approved delay and loss values to an approved data interface
-    Then both values are within configured scenario limits
+    When the caller applies the fixed data-path degradation scenario
+    Then its delay and loss values match the fixed catalogue
     And the impairment applies only in the declared direction
     And management traffic is not impaired
 
@@ -97,7 +97,7 @@ Feature: Control predefined lab faults in God mode
     When the application workflow handles the failure
     Then it attempts the predefined rollback
     And it verifies whether the baseline was restored
-    And it reports either baseline or rollback_failed
+    And it reports either baseline or reconciliation_required with an explicit failure
     And it never reports the fault as active without successful verification
 
   Scenario: Reset an active fault

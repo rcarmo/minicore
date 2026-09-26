@@ -13,7 +13,7 @@ Feature: Enforce Operator and God capability modes
   Scenario: Operator discovers only diagnostic tools
     Given the caller is authenticated in Operator mode
     When the caller lists MCP tools
-    Then the response includes list_nodes, get_interfaces, get_routes, get_neighbors, and ping
+    Then the response includes list_nodes, get_interfaces, get_routes, get_neighbors, ping, and get_evidence
     And the response excludes list_fault_scenarios, apply_fault, get_fault_state, and reset_lab
     And the response excludes arbitrary command, shell, SSH, Docker, and configuration tools
 
@@ -77,8 +77,8 @@ Feature: Enforce Operator and God capability modes
     And authorization is enforced for DELETE on the MCP endpoint
     And there is no unauthenticated route to the same MCP backend
 
-  Scenario: Customer UI cannot cross the God boundary
-    Given a customer is using the topology web UI
+  Scenario: Operator UI cannot cross the God boundary
+    Given an Operator is using the topology web UI
     Then the UI assets contain no God credential
-    And the UI exposes no fault application or reset control
-    And UI API routes cannot invoke the fault controller
+    And the Operator view exposes no fault application or reset control
+    And Operator-authenticated UI API routes cannot invoke the fault controller

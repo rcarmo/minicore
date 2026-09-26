@@ -6,6 +6,7 @@ export default defineConfig({
     features: [
       "../features/visualization/current_workbench.feature",
       "../features/visualization/current_network_events.feature",
+      "../features/operations/current_network_event_models.feature",
       "../features/visualization/browser_matrix.feature",
       "../features/operations/current_host_tools.feature",
       "../features/operations/current_log_collector.feature",

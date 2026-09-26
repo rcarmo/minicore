@@ -79,6 +79,7 @@ class Capture:
                 "rate_limit",
             ]
         }
+        self._wall_offset = None
         self._budget_second = -1
         self._budget_count = 0
 
@@ -116,8 +117,28 @@ class Capture:
         except (IGMPParseError, ValueError):
             self._error("parse", binding["node"])
 
+    def _clock_stable(self):
+        offset = time.time_ns() / 1e9 - self.clock()
+        if self._wall_offset is None:
+            self._wall_offset = offset
+            return True
+        if abs(offset - self._wall_offset) <= 0.01:
+            return True
+        # SO_TIMESTAMPNS uses realtime. Its conversion is ambiguous after a
+        # clock step: discard kernel queues instead of giving packets a new age.
+        for key, (_, binding) in list(self.taps.items()):
+            self._error("socket_unavailable", binding["node"])
+            self.store.health(
+                "node:" + binding["node"] + ":igmp", "source_unavailable", binding["incarnation"]
+            )
+            self._close(key)
+        self._wall_offset = offset
+        return False
+
     def _ready(self, key):
         if key not in self.taps:
+            return
+        if not self._clock_stable():
             return
         sock, binding = self.taps[key]
         # Bounded work per callback; the loop can serve IPC/timers under a storm.
@@ -140,7 +161,19 @@ class Capture:
                     wall_ns = sec * 1000000000 + nsec
                 if level == SOL_PACKET and kind == PACKET_AUXDATA and len(data) >= 4:
                     partial = bool(struct.unpack_from("I", data)[0] & 8)
-            age = (time.time_ns() - wall_ns) / 1e9 if wall_ns is not None else None
+            if not self._clock_stable():
+                return
+            # Use the older of the stable conversion and the current realtime
+            # delta; small clock drift must never extend packet retention.
+            acquired = (
+                min(
+                    wall_ns / 1e9 - self._wall_offset,
+                    self.clock() - (time.time_ns() - wall_ns) / 1e9,
+                )
+                if wall_ns is not None
+                else None
+            )
+            age = self.clock() - acquired if acquired is not None else None
             if age is None or age < -0.01 or age >= 60:
                 self._error("expired", binding["node"])
                 continue
@@ -161,6 +194,8 @@ class Capture:
     def reconcile(self, bindings):
         if len(bindings) > 18:
             raise ValueError("capture_interface_limit")
+        if not self._clock_stable():
+            return
         desired = {(b["node"], b["interface"]): b for b in bindings}
         for key, (_, old) in list(self.taps.items()):
             if key not in desired or desired[key] != old:

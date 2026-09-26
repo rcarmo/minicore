@@ -19,13 +19,14 @@ Implemented scenarios execute via `make acceptance`: Behave for Python contracts
 | [Exercise the published Compose endpoint with an independent MCP SDK](../../features/integration/mcp_independent_client.feature) | external | live lab | 1 |
 | [Verify MCP transport with independent clients and hostile wire inputs](../../features/integration/mcp_protocol.feature) | implemented | python | 25 |
 | [Discover current host counter mappings for inventory data interfaces](../../features/observer/current_host_observer.feature) | implemented | python | 12 |
-| [Limit live capture to inventoried IGMP control messages](../../features/observer/current_igmp_capture.feature) | implemented | python | 15 |
+| [Limit live capture to inventoried IGMP control messages](../../features/observer/current_igmp_capture.feature) | implemented | python | 18 |
 | [Decode bounded recent IGMP signalling from Ethernet IPv4 frames](../../features/observer/current_igmp.feature) | implemented | python | 20 |
 | [Retain only bounded recent observer records in memory](../../features/observer/current_memory.feature) | implemented | python | 20 |
 | [Serve shared volatile observer data through HTTP MCP and SSE](../../features/observer/current_observer_api.feature) | implemented | python | 12 |
 | [Share volatile source collection through a bounded Unix socket](../../features/observer/current_observer_service.feature) | implemented | python | 12 |
 | [Generate and manage the declared containers from the host only](../../features/operations/current_host_tools.feature) | implemented | host | 23 |
 | [Collect bounded container evidence without service-side Docker access](../../features/operations/current_log_collector.feature) | implemented | host | 7 |
+| [Validate isolated network event models and module exports](../../features/operations/current_network_event_models.feature) | implemented | host | 5 |
 | [Inject and reset each real lab fault through God MCP](../../features/operations/live_faults.feature) | external | live lab | 1 |
 | [Prove routed data-path isolation independently of baseline reachability](../../features/operations/live_isolation.feature) | external | live lab | 3 |
 | [Verify read-only observer host sources against the local lab](../../features/operations/live_observer.feature) | external | live lab | 11 |
@@ -36,7 +37,7 @@ Implemented scenarios execute via `make acceptance`: Behave for Python contracts
 | [Wait for fresh log evidence after a restart invalidation](../../features/operations/log_smoke.feature) | implemented | python | 3 |
 | [Boot real network nodes and observe live logs](../../features/operations/node_boot.feature) | external | live lab | 4 |
 | [Issue bounded diagnostic commands in Operator mode](../../features/planned/diagnostics/operator_commands.feature) | planned | not bound | 15 |
-| [Control predefined lab faults in God mode](../../features/planned/incidents/god_fault_control.feature) | planned | not bound | 23 |
+| [Control fixed MCP lab faults in God mode](../../features/planned/incidents/god_fault_control.feature) | planned | not bound | 23 |
 | [Expose Minicore through one application service](../../features/planned/integration/unified_service.feature) | planned | not bound | 5 |
 | [Observe bounded IGMP signalling without application inspection](../../features/planned/observer/igmp_observer.feature) | planned | not bound | 24 |
 | [Observe topology and routing through inventory-bound read-only sources](../../features/planned/observer/routing_observer.feature) | planned | not bound | 19 |
@@ -73,7 +74,7 @@ Implemented scenarios execute via `make acceptance`: Behave for Python contracts
 | [Read the declared configuration file tree for a node](../../features/visualization/configuration_browser.feature) | implemented | python | 16 |
 | [Publish bounded ordinary agent request activity](../../features/visualization/current_activity.feature) | implemented | python | 14 |
 | [Bounded and truthful node log pages](../../features/visualization/current_log_pages.feature) | implemented | python | 26 |
-| [Volatile network events panel](../../features/visualization/current_network_events.feature) | implemented | browser | 13 |
+| [Volatile network events panel](../../features/visualization/current_network_events.feature) | implemented | browser | 8 |
 | [Distinguish declared domains and live exact-prefix evidence](../../features/visualization/current_routing_layers.feature) | implemented | python | 17 |
 | [Bounded topology and node-log invalidation streams](../../features/visualization/current_streams.feature) | implemented | python | 6 |
 | [Current network workbench interactions](../../features/visualization/current_workbench.feature) | implemented | browser | 41 |
@@ -190,6 +191,8 @@ Source: [features/observer/current_igmp_capture.feature](../../features/observer
 - L35: Replacing a mapped interface closes its previous packet descriptor (1 case)
 - L40: Lock the IGMP filter before activating bridge-level reception (1 case)
 - L44: An IGMP storm is bounded without persisting packets (1 case)
+- L49: A wall-clock step invalidates queued capture timestamps (2 cases)
+- L59: Kernel timestamps determine record age before callback processing (1 case)
 
 ## Decode bounded recent IGMP signalling from Ethernet IPv4 frames
 Source: [features/observer/current_igmp.feature](../../features/observer/current_igmp.feature) · runner: python
@@ -280,6 +283,15 @@ Source: [features/operations/current_log_collector.feature](../../features/opera
 - L18: Collect declared nodes only with fixed log requests (1 case)
 - L25: Reject an unknown selected node before collection (1 case)
 - L30: Refuse overlapping host collectors (1 case)
+
+## Validate isolated network event models and module exports
+Source: [features/operations/current_network_event_models.feature](../../features/operations/current_network_event_models.feature) · runner: host
+
+- L3: Validate bounded observer projection and expiry without topology integration (1 case)
+- L7: Export a standalone network events panel for later parent integration (1 case)
+- L11: Rates use source seconds and preserve changes across the whole current window (1 case)
+- L14: Malformed lifetime metadata cannot keep an observer row alive (1 case)
+- L17: Incomplete observations cannot generate a withdrawal or a traffic rate (1 case)
 
 ## Wait for fresh log evidence after a restart invalidation
 Source: [features/operations/log_smoke.feature](../../features/operations/log_smoke.feature) · runner: python
@@ -466,19 +478,14 @@ Source: [features/visualization/current_log_pages.feature](../../features/visual
 ## Volatile network events panel
 Source: [features/visualization/current_network_events.feature](../../features/visualization/current_network_events.feature) · runner: browser
 
-- L3: Validate bounded observer projection and expiry without topology integration (1 case)
-- L7: Export a standalone network events panel for later parent integration (1 case)
-- L11: Rates use source seconds and preserve changes across the whole current window (1 case)
-- L14: Malformed lifetime metadata cannot keep an observer row alive (1 case)
-- L17: Incomplete observations cannot generate a withdrawal or a traffic rate (1 case)
-- L20: Open live events in a compact panel and inspect without applying faults (1 case)
-- L23: Pausing the list does not extend a row lifetime (1 case)
-- L26: Ignore an obsolete node response after selecting a link (1 case)
-- L29: Link rates match each endpoint with its own previous sample (1 case)
-- L32: Repeated fetches cannot renew a record lifetime (1 case)
-- L35: Conflicting record identities are rejected before rendering (1 case)
-- L38: Show which link endpoint is unavailable (1 case)
-- L41: A failed endpoint does not erase the healthy endpoint's rate (1 case)
+- L3: Open live events in a compact panel and inspect without applying faults (1 case)
+- L6: Pausing the list does not extend a row lifetime (1 case)
+- L9: Ignore an obsolete node response after selecting a link (1 case)
+- L12: Link rates match each endpoint with its own previous sample (1 case)
+- L15: Repeated fetches cannot renew a record lifetime (1 case)
+- L18: Conflicting record identities are rejected before rendering (1 case)
+- L21: Show which link endpoint is unavailable (1 case)
+- L24: A failed endpoint does not erase the healthy endpoint's rate (1 case)
 
 ## Distinguish declared domains and live exact-prefix evidence
 Source: [features/visualization/current_routing_layers.feature](../../features/visualization/current_routing_layers.feature) · runner: python

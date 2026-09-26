@@ -45,3 +45,18 @@ Feature: Limit live capture to inventoried IGMP control messages
     Given a mapped IGMP capture source with a volatile store
     When more than 1024 valid reports arrive within one second
     Then the remaining reports are dropped and the store record and byte bounds hold
+
+  Scenario Outline: A wall-clock step invalidates queued capture timestamps
+    Given a mapped IGMP capture source with a volatile store
+    When the capture wall clock steps "<direction>" while a frame is queued
+    Then queued frames are discarded and the source becomes unavailable
+    And a rebound source accepts fresh reports without extending old record age
+    Examples:
+      | direction |
+      | forward   |
+      | backward  |
+
+  Scenario: Kernel timestamps determine record age before callback processing
+    Given a mapped IGMP capture source with a volatile store
+    When the callback receives a frame queued for seventy seconds with stable clocks
+    Then no report record is stored and an input error counter increases

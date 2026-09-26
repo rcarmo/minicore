@@ -2657,17 +2657,18 @@ class AsyncMCPServer:
                     self.logger.error("HTTP auxiliary route hook returned invalid response: %r", response)
                     await send_response("500 Internal Server Error", origin=allowed_origin)
                     return keep_alive
-                await send_response(
-                    http_status_line(validated.status),
-                    body=validated.body,
-                    content_type=validated.content_type,
-                    origin=allowed_origin,
-                    extra_headers=validated.headers,
-                    force_close=validated.stream is not None,
-                    streaming=validated.stream is not None,
-                )
                 if validated.stream is not None:
                     try:
+                        # Release admission even if header drain fails before iteration.
+                        await send_response(
+                            http_status_line(validated.status),
+                            body=validated.body,
+                            content_type=validated.content_type,
+                            origin=allowed_origin,
+                            extra_headers=validated.headers,
+                            force_close=True,
+                            streaming=True,
+                        )
                         async for chunk in validated.stream:
                             if not isinstance(chunk, bytes) or len(chunk) > max_request_bytes:
                                 raise ValueError("Invalid auxiliary stream chunk")
@@ -2678,6 +2679,11 @@ class AsyncMCPServer:
                         if close is not None:
                             await close()
                     return False
+                await send_response(
+                    http_status_line(validated.status), body=validated.body,
+                    content_type=validated.content_type, origin=allowed_origin,
+                    extra_headers=validated.headers,
+                )
                 return keep_alive
 
             if method == "OPTIONS":

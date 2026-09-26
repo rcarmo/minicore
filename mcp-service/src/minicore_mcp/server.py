@@ -86,6 +86,39 @@ INPUTS = {
 }
 
 
+class AdmittedStream:
+    """Own a subscriber slot even before the transport starts iteration."""
+
+    def __init__(self, server, source):
+        if server.streams >= 16:
+            raise OSError("stream_limit")
+        self.server = server
+        self.source = source
+        self.closed = False
+        server.streams += 1
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self.closed:
+            raise StopAsyncIteration
+        try:
+            return await anext(self.source)
+        except BaseException:
+            await self.aclose()
+            raise
+
+    async def aclose(self):
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            await self.source.aclose()
+        finally:
+            self.server.streams -= 1
+
+
 class Server(AsyncMCPServer):
     def __init__(self, topology: Topology, policy: Policy, assets: Path):
         self.topology, self.policy, self.assets = topology, policy, assets
@@ -604,62 +637,64 @@ class Server(AsyncMCPServer):
         except MCPAuthenticationBusy:
             return False
 
-    async def events(self, view="agent", headers=None, principal=None):
-        previous = None
-        self.streams += 1
-        try:
-            for _ in range(
-                60
-            ):  # Re-authorize at least every minute; bounded per-connection lifetime.
-                if not await self.stream_authorized(headers, principal):
-                    return
-                try:
-                    s = await self.project_topology_async(view)
-                except OSError as exc:
-                    if str(exc) not in {"generation_mismatch", "file_io_busy"}:
-                        raise
-                    # No stale invalidation; reconnect starts a fresh bounded read.
-                    return
-                # Controller changes also invalidate the authorised God view.
-                revision = json.dumps([s["revision"], s.get("controller")], sort_keys=True)
-                if previous != revision:
-                    kind = "topology.snapshot" if previous is None else "topology.changed"
-                    yield f"id: {s['revision']}\nevent: {kind}\ndata: {json.dumps({'generation': s['generation'], 'revision': s['revision']})}\n\n".encode()
-                    previous = revision
-                else:
-                    yield b": heartbeat\n\n"
-                await asyncio.sleep(1)
-        finally:
-            self.streams -= 1
+    def events(self, view="agent", headers=None, principal=None):
+        return AdmittedStream(self, self._events(view, headers, principal))
 
-    async def log_events(self, node, headers=None, principal=None):
+    async def _events(self, view, headers, principal):
         previous = None
-        self.streams += 1
-        try:
-            for _ in range(30):
-                if not await self.stream_authorized(headers, principal):
-                    return
-                page = await self.log_page(node, limit=1)
-                state = (page["data"]["revision"], page["error_code"], page["generation"])
-                if state != previous:
-                    kind = "logs.snapshot" if previous is None else "logs.changed"
-                    data = {
-                        "node_id": node,
-                        "generation": page["generation"],
-                        "revision": state[0],
-                        "status": page["status"],
-                        "error_code": page["error_code"],
-                    }
-                    yield f"event: {kind}\ndata: {json.dumps(data)}\n\n".encode()
-                    previous = state
-                else:
-                    yield b": heartbeat\n\n"
-                await asyncio.sleep(2)
-        finally:
-            self.streams -= 1
+        for _ in range(60):  # Re-authorize at least every minute; bounded per-connection lifetime.
+            if not await self.stream_authorized(headers, principal):
+                return
+            try:
+                s = await self.project_topology_async(view)
+            except OSError as exc:
+                if str(exc) not in {"generation_mismatch", "file_io_busy"}:
+                    raise
+                # No stale invalidation; reconnect starts a fresh bounded read.
+                return
+            if not await self.stream_authorized(headers, principal):
+                return
+            # Controller changes also invalidate the authorised God view.
+            revision = json.dumps([s["revision"], s.get("controller")], sort_keys=True)
+            if previous != revision:
+                kind = "topology.snapshot" if previous is None else "topology.changed"
+                yield f"id: {s['revision']}\nevent: {kind}\ndata: {json.dumps({'generation': s['generation'], 'revision': s['revision']})}\n\n".encode()
+                previous = revision
+            else:
+                yield b": heartbeat\n\n"
+            await asyncio.sleep(1)
 
-    async def activity_events(self, headers=None, principal=None):
-        self.streams += 1
+    def log_events(self, node, headers=None, principal=None):
+        return AdmittedStream(self, self._log_events(node, headers, principal))
+
+    async def _log_events(self, node, headers, principal):
+        previous = None
+        for _ in range(30):
+            if not await self.stream_authorized(headers, principal):
+                return
+            page = await self.log_page(node, limit=1)
+            if not await self.stream_authorized(headers, principal):
+                return
+            state = (page["data"]["revision"], page["error_code"], page["generation"])
+            if state != previous:
+                kind = "logs.snapshot" if previous is None else "logs.changed"
+                data = {
+                    "node_id": node,
+                    "generation": page["generation"],
+                    "revision": state[0],
+                    "status": page["status"],
+                    "error_code": page["error_code"],
+                }
+                yield f"event: {kind}\ndata: {json.dumps(data)}\n\n".encode()
+                previous = state
+            else:
+                yield b": heartbeat\n\n"
+            await asyncio.sleep(2)
+
+    def activity_events(self, headers=None, principal=None):
+        return AdmittedStream(self, self._activity_events(headers, principal))
+
+    async def _activity_events(self, headers, principal):
         try:
             async with asyncio.timeout(60):
                 while True:
@@ -674,8 +709,6 @@ class Server(AsyncMCPServer):
                         pass
         except TimeoutError:
             return
-        finally:
-            self.streams -= 1
 
     async def targeted_fault(self, args, principal):
         from .host_faults import catalogue
@@ -799,33 +832,32 @@ class Server(AsyncMCPServer):
             return link_snapshot(store, self.topology, args["link_id"], args["observation"])
         return store.snapshot(scope)
 
-    async def observer_events(self, headers, principal):
-        self.streams += 1
-        try:
-            previous = None
-            for _ in range(60):
-                if not await self.stream_authorized(headers, principal):
-                    return
-                store = self.observer
-                if store:
-                    if store.generation != self.topology.inventory["generation"]:
-                        store.reset(self.topology.inventory["generation"])
-                    store.sweep()
-                value = {
-                    "observer_epoch": store.epoch if store else None,
-                    "generation": self.topology.inventory["generation"],
-                    "revision": store.revision if store else 0,
-                }
-                text = json.dumps(value)
-                yield (
-                    f"event: observer.changed\ndata: {text}\n\n"
-                    if text != previous
-                    else ": heartbeat\n\n"
-                ).encode()
-                previous = text
-                await asyncio.sleep(1)
-        finally:
-            self.streams -= 1
+    def observer_events(self, headers, principal):
+        return AdmittedStream(self, self._observer_events(headers, principal))
+
+    async def _observer_events(self, headers, principal):
+        previous = None
+        for _ in range(60):
+            if not await self.stream_authorized(headers, principal):
+                return
+            store = self.observer
+            if store:
+                if store.generation != self.topology.inventory["generation"]:
+                    store.reset(self.topology.inventory["generation"])
+                store.sweep()
+            value = {
+                "observer_epoch": store.epoch if store else None,
+                "generation": self.topology.inventory["generation"],
+                "revision": store.revision if store else 0,
+            }
+            text = json.dumps(value)
+            yield (
+                f"event: observer.changed\ndata: {text}\n\n"
+                if text != previous
+                else ": heartbeat\n\n"
+            ).encode()
+            previous = text
+            await asyncio.sleep(1)
 
     async def handle_http_request_async(self, *, method, path, headers, body, peer):
         try:
@@ -897,7 +929,10 @@ class Server(AsyncMCPServer):
             if view == "god" and "god" not in p.roles:
                 return self.response(403, {"error_code": "authorization_denied"})
             if path == "/api/v1/topology":
-                return self.response(200, await self.project_topology_async(view))
+                snapshot = await self.project_topology_async(view)
+                if not await self.stream_authorized(headers, p):
+                    return self.response(401, {"error_code": "authentication_required"})
+                return self.response(200, snapshot)
             if self.streams >= 16:
                 return self.response(503, {"error_code": "stream_limit"})
             return MCPHTTPResponse(

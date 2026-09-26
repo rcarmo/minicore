@@ -477,8 +477,9 @@ def wire_query(c):
 
 @given("a topology stream is open")
 def topo_stream(c):
+    c.stream_runner = asyncio.Runner()
     c.stream = c.server.events()
-    assert b"topology.snapshot" in run(anext(c.stream))
+    assert b"topology.snapshot" in c.stream_runner.run(anext(c.stream))
 
 
 @when("container observations change")
@@ -488,28 +489,31 @@ def topo_change(c):
 
 @then("the stream emits topology.changed with the new revision")
 def topo_event(c):
-    chunk = run(anext(c.stream))
+    chunk = c.stream_runner.run(anext(c.stream))
     assert b"topology.changed" in chunk and c.topology.snapshot()["revision"].encode() in chunk
 
 
 @then("closing it releases its slot")
 def close(c):
-    run(c.stream.aclose())
+    c.stream_runner.run(c.stream.aclose())
+    c.stream_runner.close()
     c.stream = None
     assert c.server.streams == 0
 
 
 @then("reconnecting starts with topology.snapshot rather than replay")
 def reconnect(c):
+    c.stream_runner = asyncio.Runner()
     c.stream = c.server.events()
-    assert b"topology.snapshot" in run(anext(c.stream))
+    assert b"topology.snapshot" in c.stream_runner.run(anext(c.stream))
 
 
 @given("current node log entries and a log stream")
 def log_stream(c):
     logs(c)
+    c.stream_runner = asyncio.Runner()
     c.stream = c.server.log_events("p1")
-    assert b"logs.snapshot" in run(anext(c.stream))
+    assert b"logs.snapshot" in c.stream_runner.run(anext(c.stream))
 
 
 @when("the node log snapshot changes")
@@ -519,7 +523,7 @@ def log_change(c):
 
 @then("the stream emits logs.changed without message contents")
 def log_event(c):
-    chunk = run(anext(c.stream))
+    chunk = c.stream_runner.run(anext(c.stream))
     assert b"logs.changed" in chunk and b"message" not in chunk
 
 

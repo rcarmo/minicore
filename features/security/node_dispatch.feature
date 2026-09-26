@@ -86,3 +86,34 @@ Feature: Validate node requests independently of the MCP client
   Scenario: Preserve a no-route probe as unavailable rather than fabricated packet loss
     When ping exits with a network unreachable diagnostic and no packet summary
     Then the node reports network_unreachable with no invented counts
+
+
+  Scenario Outline: Reject malformed neighbor payloads without breaking valid disabled or idle shapes
+    When the node normalises malformed neighbor case "<case>"
+    Then neighbor parsing fails with parse_failure
+    Examples:
+      | case        |
+      | BGP peers[] |
+      | BGP peerbadrow |
+      | OSPF string |
+      | OSPF listbadrow |
+
+  Scenario Outline: Preserve valid neighbor payload fixtures for disabled and established or idle states
+    When the node normalises valid neighbor case "<case>"
+    Then neighbor parsing preserves the original typed payload
+    Examples:
+      | case             |
+      | disabled empty   |
+      | BGP established  |
+      | BGP idle         |
+      | OSPF established |
+
+  Scenario Outline: Reject malformed neighbor success payloads returned over SSH
+    When the SSH adapter receives malformed neighbor success case "<case>"
+    Then the adapter returns parse_failure with bounded raw neighbor evidence
+    Examples:
+      | case        |
+      | BGP peers[] |
+      | BGP peerbadrow |
+      | OSPF string |
+      | OSPF listbadrow |

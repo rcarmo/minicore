@@ -33,7 +33,12 @@ def after_scenario(context, scenario):
     import asyncio
 
     if context.stream:
-        asyncio.run(context.stream.aclose())
+        runner = getattr(context, "stream_runner", None)
+        if runner:
+            runner.run(context.stream.aclose())
+            runner.close()
+        else:
+            asyncio.run(context.stream.aclose())
     if context.wire:
         context.wire.tearDownClass()
     context.temp.cleanup()

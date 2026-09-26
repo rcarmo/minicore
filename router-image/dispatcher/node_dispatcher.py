@@ -151,7 +151,34 @@ def run_bounded(argv, deadline=10, limit=LIMIT):
     }
 
 
-def normalise(operation, output):
+def valid_neighbors(data, protocol):
+    if not isinstance(data, dict):
+        return False
+    if protocol == "bgp":
+        if not data:
+            return True
+        unicast = data.get("ipv4Unicast")
+        if not isinstance(unicast, dict) or not isinstance(unicast.get("peers"), dict):
+            return False
+        return all(
+            isinstance(address, str)
+            and isinstance(row, dict)
+            and isinstance(row.get("state"), str)
+            and bool(row["state"])
+            for address, row in unicast["peers"].items()
+        )
+    return all(
+        isinstance(address, str)
+        and isinstance(rows, list)
+        and all(
+            isinstance(row, dict) and isinstance(row.get("nbrState"), str) and bool(row["nbrState"])
+            for row in rows
+        )
+        for address, rows in data.items()
+    )
+
+
+def normalise(operation, output, protocol=None):
     if operation != "ping":
         data = json.loads(output)
         if operation == "get_interfaces":
@@ -163,6 +190,10 @@ def normalise(operation, output):
             ):
                 raise ValueError("parse_failure")
         elif not isinstance(data, dict):
+            raise ValueError("parse_failure")
+        if operation == "get_neighbors" and not valid_neighbors(
+            data, protocol or ("bgp" if "ipv4Unicast" in data else "ospf")
+        ):
             raise ValueError("parse_failure")
         if operation == "get_routes":
             for prefix, routes in data.items():

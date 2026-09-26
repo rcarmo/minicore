@@ -1027,3 +1027,107 @@ def no_route_ping(c):
 @then("the node reports network_unreachable with no invented counts")
 def no_route_classified(c):
     assert c.no_route_code == "network_unreachable" and c.no_route_data is None
+
+
+@when('the node normalises malformed neighbor case "{case}"')
+def malformed_neighbor_case(c, case):
+    from node_dispatcher import normalise
+
+    payloads = {
+        "BGP peers[]": '{"ipv4Unicast":{"peers":[]}}',
+        "BGP peerbadrow": '{"ipv4Unicast":{"peers":{"10.254.0.2":["bad"]}}}',
+        "OSPF string": '"down"',
+        "OSPF listbadrow": '{"10.254.0.2":["bad"]}',
+    }
+    c.neighbor_source = payloads[case]
+    try:
+        normalise("get_neighbors", c.neighbor_source)
+    except ValueError as exc:
+        c.neighbor_error = str(exc)
+    else:
+        c.neighbor_error = None
+
+
+@then("neighbor parsing fails with parse_failure")
+def malformed_neighbor_case_result(c):
+    assert c.neighbor_error == "parse_failure"
+
+
+@when('the node normalises valid neighbor case "{case}"')
+def valid_neighbor_case(c, case):
+    from node_dispatcher import normalise
+
+    payloads = {
+        "disabled empty": "{}",
+        "BGP established": '{"ipv4Unicast":{"peers":{"10.254.0.2":{"state":"Established","remoteAs":65000}}}}',
+        "BGP idle": '{"ipv4Unicast":{"peers":{"10.254.0.2":{"state":"Idle"}}}}',
+        "OSPF established": '{"10.254.0.2":[{"ifaceName":"to-p2:10.200.1.2","nbrState":"Full/-"}]}',
+    }
+    c.valid_neighbor_source = payloads[case]
+    c.valid_neighbor_data = normalise("get_neighbors", c.valid_neighbor_source)
+
+
+@then("neighbor parsing preserves the original typed payload")
+def valid_neighbor_case_result(c):
+    assert c.valid_neighbor_data == json.loads(c.valid_neighbor_source)
+
+
+@when('the SSH adapter receives malformed neighbor success case "{case}"')
+def malformed_neighbor_over_ssh(c, case):
+    import asyncio
+    import os
+    import shutil
+    from unittest.mock import patch
+
+    from minicore_mcp.ssh_adapter import SSHAdapter
+
+    fixture = c.root / "ssh-neighbor-fixture"
+    if fixture.exists():
+        shutil.rmtree(fixture)
+    fixture.mkdir()
+    shutil.copy("tests/ssh_process_fixture.py", fixture / "ssh")
+    (fixture / "ssh").chmod(0o755)
+    for name in ["diagnostic", "known_hosts"]:
+        (fixture / name).write_text("test-only")
+    payloads = {
+        "BGP peers[]": {"ipv4Unicast": {"peers": []}},
+        "BGP peerbadrow": {"ipv4Unicast": {"peers": {"10.254.0.2": ["bad"]}}},
+        "OSPF string": "down",
+        "OSPF listbadrow": {"10.254.0.2": ["bad"]},
+    }
+    request = {
+        "operation": "get_neighbors",
+        "protocol": "bgp" if case.startswith("BGP") else "ospf",
+    }
+    (fixture / "mode").write_text("neighbor")
+    adapter = SSHAdapter(c.topology, fixture)
+    original = json.dumps
+
+    def fake_dumps(value, *args, **kwargs):
+        if value == request:
+            return original(
+                {
+                    "status": "ok",
+                    "data": payloads[case],
+                    "error_code": None,
+                    "raw_evidence": original(payloads[case]),
+                    "truncated": False,
+                    "duration_ms": 1,
+                }
+            )
+        return original(value, *args, **kwargs)
+
+    with patch.dict(
+        os.environ,
+        {"PATH": str(fixture) + ":" + os.environ["PATH"], "SSH_FIXTURE_ROOT": str(fixture)},
+    ):
+        with patch("minicore_mcp.ssh_adapter.json.dumps", side_effect=fake_dumps):
+            c.ssh_neighbor_result = asyncio.run(adapter.execute("p1", request))
+
+
+@then("the adapter returns parse_failure with bounded raw neighbor evidence")
+def malformed_neighbor_over_ssh_result(c):
+    assert c.ssh_neighbor_result["status"] == "unavailable", c.ssh_neighbor_result
+    assert c.ssh_neighbor_result["error_code"] == "parse_failure", c.ssh_neighbor_result
+    assert c.ssh_neighbor_result["data"] is None, c.ssh_neighbor_result
+    assert len(c.ssh_neighbor_result["raw_evidence"].encode()) < 65536

@@ -61,6 +61,8 @@ result = {
     "duration_ms": 1,
     "error_code": None,
 }
+if mode == "neighbor":
+    result.update(request)
 if mode == "shape":
     result["data"] = "pretend healthy"
 if mode == "false_error":

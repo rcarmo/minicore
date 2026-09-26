@@ -215,6 +215,7 @@ class Store:
         self._groups: dict[str, float] = {}
         self._loss: dict[str, dict[str, int]] = {}
         self._loss_buckets: dict[str, list[tuple[float, dict[str, int]]]] = {}
+        self._visible = self._token(self.clock())
 
     def _scope(self, scope):
         if not isinstance(scope, str) or not SCOPES.fullmatch(scope):
@@ -222,13 +223,52 @@ class Store:
         if scope not in self._scopes and len(self._scopes) >= 128:
             raise ValueError("scope_limit")
 
+    def _effective_health(self, scope, now, meta=None):
+        meta = self._scopes.get(scope) if meta is None else meta
+        if meta is None or not 0 <= now - meta[2] < 60:
+            return None
+        state = meta[1]
+        if state == "ok" and now - meta[2] > (15 if scope.endswith(":routing") else 3):
+            return "collection_timeout"
+        return state
+
+    def _token(self, now):
+        rows = tuple(
+            sorted((row[0], row[1], row[2]) for row in self._rows if 0 <= now - row[1] < 60)
+        )
+        scopes = tuple(
+            sorted(
+                (scope, meta[0], self._effective_health(scope, now, meta))
+                for scope, meta in self._scopes.items()
+                if self._effective_health(scope, now, meta) is not None
+            )
+        )
+        loss = tuple(
+            sorted(
+                (
+                    scope,
+                    tuple(
+                        (stamp, tuple(sorted(counts.items())))
+                        for stamp, counts in buckets
+                        if 0 <= now - stamp < 60
+                    ),
+                )
+                for scope, buckets in self._loss_buckets.items()
+                if any(0 <= now - stamp < 60 for stamp, _ in buckets)
+            )
+        )
+        return self.generation, self.epoch, rows, scopes, loss
+
+    def _refresh_revision(self, now):
+        visible = self._token(now)
+        if visible != self._visible:
+            self.revision += 1
+            self._visible = visible
+
     def sweep(self):
         now = self.clock()
         # Delayed IPC may arrive out of order; expiry cannot rely on deque order.
-        before = len(self._rows)
         self._rows = deque(row for row in self._rows if 0 <= now - row[1] < 60)
-        if len(self._rows) != before:
-            self.revision += 1
         self._bytes = sum(row[3] for row in self._rows)
         self._groups = {g: t for g, t in self._groups.items() if 0 <= now - t < 60}
         self._loss_buckets = {
@@ -248,6 +288,7 @@ class Store:
         self._scopes = {
             key: value for key, value in self._scopes.items() if 0 <= now - value[2] < 60
         }
+        self._refresh_revision(now)
 
     @property
     def record_count(self):
@@ -262,7 +303,7 @@ class Store:
     def _missed(self):
         self.missed = min((1 << 53) - 1, self.missed + 1)
 
-    def drop(self, scope, reason, count=1):
+    def drop(self, scope, reason, count=1, *, refresh=True):
         self._scope(scope)
         if reason not in {
             "expired",
@@ -285,8 +326,8 @@ class Store:
         counts = buckets[-1][1]
         counts[reason] = min(2**53 - 1, counts.get(reason, 0) + count)
         self.missed = min(2**53 - 1, self.missed + count)
-        self.revision += 1
-        self.sweep()
+        if refresh:
+            self.sweep()
 
     def import_loss(self, scope, buckets):
         self._scope(scope)
@@ -324,7 +365,7 @@ class Store:
         self._loss_buckets[scope] = clean
         self.sweep()
 
-    def health(self, scope, state, incarnation):
+    def health(self, scope, state, incarnation, *, observed_at=None, refresh=True):
         self.sweep()
         self._scope(scope)
         if (
@@ -333,13 +374,17 @@ class Store:
             or not re.fullmatch(r"[a-zA-Z0-9_.:-]{1,128}", incarnation)
         ):
             raise ValueError("invalid_source")
+        stamp = self.clock() if observed_at is None else observed_at
         old = self._scopes.get(scope)
+        if old and old[2] > stamp and old[0] == incarnation and old[1] != "ok" and state == "ok":
+            return False
         if old and (old[0] != incarnation or old[1] != "ok" and state == "ok"):
             self._rows = deque(row for row in self._rows if row[0] != scope)
             self._bytes = sum(row[3] for row in self._rows)
-        self._scopes[scope] = (incarnation, state, self.clock())
-        if not old or old[:2] != (incarnation, state):
-            self.revision += 1
+        self._scopes[scope] = (incarnation, state, stamp)
+        if refresh:
+            self._refresh_revision(self.clock())
+        return True
 
     def put(self, scope, data, *, acquired, incarnation):
         self.sweep()
@@ -351,7 +396,8 @@ class Store:
         ):
             raise ValueError("invalid_acquisition_time")
         if acquired < self.not_before or self.clock() - acquired >= 60:
-            self.drop(scope, "expired")
+            self.drop(scope, "expired", refresh=False)
+            self._refresh_revision(self.clock())
             return False
         kind = scope.rsplit(":", 1)[-1]
         validate(kind, data)
@@ -359,11 +405,17 @@ class Store:
             groups = {data["group"]} if data.get("group") else set()
             groups.update(row["group"] for row in data["records"])
             if len(set(self._groups) | groups) > 256:
-                self.drop(scope, "overflow")
+                self.drop(scope, "overflow", refresh=False)
+                self._refresh_revision(self.clock())
                 return False
             for group in groups:
                 self._groups[group] = acquired
-        self.health(scope, "ok", incarnation)
+        if not self.health(scope, "ok", incarnation, observed_at=acquired, refresh=False):
+            # Retained signalling may be imported while its source is unavailable.
+            # Keep its original age without allowing it to restore source health.
+            if kind != "igmp":
+                self._refresh_revision(self.clock())
+                return False
         row = {
             "scope": scope,
             "incarnation": incarnation,
@@ -376,18 +428,18 @@ class Store:
         payload = encoded(row)
         cost = sys.getsizeof(payload) + sys.getsizeof(scope) + 256
         if len(payload) > 60000 or cost > self.max_bytes:
-            self.drop(scope, "overflow")
+            self.drop(scope, "overflow", refresh=False)
+            self._refresh_revision(self.clock())
             return False
         while self._rows and (
             len(self._rows) >= self.max_records or self._bytes + cost > self.max_bytes
         ):
             old = self._rows.popleft()
             self._bytes -= old[3]
-            self.drop(old[0], "overflow")
+            self.drop(old[0], "overflow", refresh=False)
         self._rows.append((scope, acquired, payload, cost))
         self._bytes += cost
-        self._scopes[scope] = (incarnation, "ok", acquired)
-        self.revision += 1
+        self._refresh_revision(self.clock())
         return True
 
     def snapshot(self, scope, *, limit_bytes=65536):
@@ -416,12 +468,9 @@ class Store:
             "records": [],
         }
         health = self._scopes.get(scope)
-        if (
-            health
-            and health[1] == "ok"
-            and now - health[2] > (15 if scope.endswith(":routing") else 3)
-        ):
-            result["source_health"] = "collection_timeout"
+        effective = self._effective_health(scope, now, health)
+        if effective is not None:
+            result["source_health"] = effective
         selected = []
         for row in rows[-128:]:
             item = json.loads(row[2])
@@ -442,7 +491,6 @@ class Store:
         self.not_before = self.clock()
         self.generation = generation
         self.epoch = str(uuid4())
-        self.revision += 1
         self._rows.clear()
         self._scopes.clear()
         self._groups.clear()
@@ -450,6 +498,7 @@ class Store:
         self._loss_buckets.clear()
         self._bytes = 0
         self.missed = 0
+        self._refresh_revision(self.clock())
 
 
 class Coordinator:

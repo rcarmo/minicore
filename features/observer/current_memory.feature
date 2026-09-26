@@ -81,3 +81,24 @@ Feature: Retain only bounded recent observer records in memory
     Given an observer with a controllable monotonic clock
     When three IGMP drops are followed by one new drop fifty seconds later
     Then after sixty seconds only the new drop remains in the source window
+
+
+  Scenario: Revision advances only when effective health meaningfully changes
+    Given an observer with a controllable monotonic clock
+    When observer health ages across the timeout boundary and is restored
+    Then revision changes only for timeout and restoration transitions
+
+  Scenario: Revision advances when scoped loss buckets expire or change
+    Given an observer with a controllable monotonic clock
+    When imported scoped loss buckets change and then expire
+    Then revision changes for loss visibility only once per change
+
+  Scenario: Revision advances when scope health expires from the window
+    Given an observer with a controllable monotonic clock
+    When a failed source health reaches the sixty second scope expiry
+    Then revision changes when the scope becomes unavailable
+
+  Scenario: A stale success cannot overwrite a newer source error
+    Given an observer with a controllable monotonic clock
+    When a newer source error is followed by an older successful sample
+    Then the source remains failed and no stale success record is published

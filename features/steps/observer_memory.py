@@ -409,3 +409,103 @@ def drop_times(c):
 def drop_expiry(c):
     value = c.store.snapshot("node:p1:igmp")
     assert value["missed_updates"] == 1 and value["capture_errors"] == {"kernel_drops": 1}, value
+
+
+@when("observer health ages across the timeout boundary and is restored")
+def revision_health(c):
+    c.store.put("node:p1:interfaces", sample(), acquired=100, incarnation="same")
+    c.revisions = [c.store.revision]
+    c.now = 102
+    c.store.snapshot("node:p1:interfaces")
+    c.revisions.append(c.store.revision)
+    c.now = 104
+    c.store.snapshot("node:p1:interfaces")
+    c.revisions.append(c.store.revision)
+    c.store.put("node:p1:interfaces", sample(2), acquired=104, incarnation="same")
+    c.revisions.append(c.store.revision)
+    c.now = 105
+    c.store.snapshot("node:p1:interfaces")
+    c.revisions.append(c.store.revision)
+
+
+@then("revision changes only for timeout and restoration transitions")
+def revision_health_assert(c):
+    assert c.revisions == [1, 1, 2, 3, 3], c.revisions
+    data = c.store.snapshot("node:p1:interfaces")
+    assert data["source_health"] == "ok" and data["records"][-1]["data"] == sample(2), data
+
+
+@when("imported scoped loss buckets change and then expire")
+def revision_loss(c):
+    c.store.import_loss(
+        "node:p1:igmp",
+        [{"acquired_monotonic": 100, "counts": {"kernel_drops": 2}}],
+    )
+    c.revisions = [c.store.revision]
+    c.store.import_loss(
+        "node:p1:igmp",
+        [{"acquired_monotonic": 100, "counts": {"kernel_drops": 2}}],
+    )
+    c.revisions.append(c.store.revision)
+    c.now = 101
+    c.store.import_loss(
+        "node:p1:igmp",
+        [{"acquired_monotonic": 101, "counts": {"kernel_drops": 3}}],
+    )
+    c.revisions.append(c.store.revision)
+    c.now = 161
+    c.store.snapshot("node:p1:igmp")
+    c.revisions.append(c.store.revision)
+    c.now = 162
+    c.store.snapshot("node:p1:igmp")
+    c.revisions.append(c.store.revision)
+
+
+@then("revision changes for loss visibility only once per change")
+def revision_loss_assert(c):
+    assert c.revisions == [1, 1, 2, 3, 3], c.revisions
+    data = c.store.snapshot("node:p1:igmp")
+    assert (
+        data["missed_updates"] == 0 and data["capture_errors"] == {} and data["loss_buckets"] == []
+    ), data
+
+
+@when("a failed source health reaches the sixty second scope expiry")
+def revision_scope_expiry(c):
+    c.store.health("node:p1:routing", "collection_failed", "same")
+    c.revisions = [c.store.revision]
+    c.now = 159
+    c.store.snapshot("node:p1:routing")
+    c.revisions.append(c.store.revision)
+    c.now = 160
+    c.store.snapshot("node:p1:routing")
+    c.revisions.append(c.store.revision)
+    c.now = 161
+    c.store.snapshot("node:p1:routing")
+    c.revisions.append(c.store.revision)
+
+
+@then("revision changes when the scope becomes unavailable")
+def revision_scope_expiry_assert(c):
+    assert c.revisions == [1, 1, 2, 2], c.revisions
+    data = c.store.snapshot("node:p1:routing")
+    assert data["source_health"] == "source_unavailable" and data["source_incarnation"] is None, (
+        data
+    )
+
+
+@when("a newer source error is followed by an older successful sample")
+def stale_success(c):
+    c.store.health("node:p1:interfaces", "collection_failed", "same")
+    c.failed_revision = c.store.revision
+    c.accepted = c.store.put("node:p1:interfaces", sample(), acquired=99, incarnation="same")
+
+
+@then("the source remains failed and no stale success record is published")
+def stale_success_assert(c):
+    data = c.store.snapshot("node:p1:interfaces")
+    assert c.accepted is False and c.store.revision == c.failed_revision, (
+        c.accepted,
+        c.store.revision,
+    )
+    assert data["source_health"] == "collection_failed" and data["records"] == [], data

@@ -10,6 +10,33 @@ from pathlib import Path
 from .file_io import FileIO
 
 
+def valid_neighbors(data, protocol):
+    if not isinstance(data, dict):
+        return False
+    if protocol == "bgp":
+        if not data:
+            return True
+        unicast = data.get("ipv4Unicast")
+        if not isinstance(unicast, dict) or not isinstance(unicast.get("peers"), dict):
+            return False
+        return all(
+            isinstance(address, str)
+            and isinstance(row, dict)
+            and isinstance(row.get("state"), str)
+            and bool(row["state"])
+            for address, row in unicast["peers"].items()
+        )
+    return all(
+        isinstance(address, str)
+        and isinstance(rows, list)
+        and all(
+            isinstance(row, dict) and isinstance(row.get("nbrState"), str) and bool(row["nbrState"])
+            for row in rows
+        )
+        for address, rows in data.items()
+    )
+
+
 class SSHAdapter:
     def __init__(self, topology, directory: Path, *, fault=False):
         self.files = FileIO(workers=1, capacity=32)
@@ -160,6 +187,12 @@ class SSHAdapter:
                                     raise ValueError()
                             elif payload["error_code"] not in errors or payload["data"] is not None:
                                 raise ValueError()
+                            if (
+                                payload["status"] == "ok"
+                                and request.get("operation") == "get_neighbors"
+                                and not valid_neighbors(payload["data"], request.get("protocol"))
+                            ):
+                                raise ValueError("parse_failure")
                             result.update(
                                 {
                                     k: payload[k]

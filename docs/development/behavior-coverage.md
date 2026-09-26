@@ -21,7 +21,7 @@ Implemented scenarios execute via `make acceptance`: Behave for Python contracts
 | [Discover current host counter mappings for inventory data interfaces](../../features/observer/current_host_observer.feature) | implemented | python | 12 |
 | [Limit live capture to inventoried IGMP control messages](../../features/observer/current_igmp_capture.feature) | implemented | python | 15 |
 | [Decode bounded recent IGMP signalling from Ethernet IPv4 frames](../../features/observer/current_igmp.feature) | implemented | python | 20 |
-| [Retain only bounded recent observer records in memory](../../features/observer/current_memory.feature) | implemented | python | 16 |
+| [Retain only bounded recent observer records in memory](../../features/observer/current_memory.feature) | implemented | python | 20 |
 | [Serve shared volatile observer data through HTTP MCP and SSE](../../features/observer/current_observer_api.feature) | implemented | python | 12 |
 | [Share volatile source collection through a bounded Unix socket](../../features/observer/current_observer_service.feature) | implemented | python | 12 |
 | [Generate and manage the declared containers from the host only](../../features/operations/current_host_tools.feature) | implemented | host | 23 |
@@ -63,8 +63,9 @@ Implemented scenarios execute via `make acceptance`: Behave for Python contracts
 | [Current service access and input boundaries](../../features/security/current_access.feature) | implemented | python | 29 |
 | [Correlate bounded authorization and fixed mutation audit records](../../features/security/current_audit.feature) | implemented | python | 2 |
 | [Isolate MCP execution and cancellation between callers](../../features/security/mcp_execution_isolation.feature) | implemented | python | 12 |
-| [Validate node requests independently of the MCP client](../../features/security/node_dispatch.feature) | implemented | python | 35 |
+| [Validate node requests independently of the MCP client](../../features/security/node_dispatch.feature) | implemented | python | 47 |
 | [Bound SSH execution and reject misleading node results](../../features/security/ssh_failure_handling.feature) | implemented | python | 16 |
+| [Reserve stream admission before transport starts consuming events](../../features/security/stream_admission.feature) | implemented | python | 7 |
 | [Release transport resources for disconnected and slow clients](../../features/security/stream_resources.feature) | implemented | python | 5 |
 | [Select an authorised visibility projection without changing capability](../../features/security/visibility_projection.feature) | implemented | python | 19 |
 | [Combine declared topology and timestamped container presence](../../features/topology/current_state.feature) | implemented | python | 17 |
@@ -217,6 +218,10 @@ Source: [features/observer/current_memory.feature](../../features/observer/curre
 - L70: A silent collector cannot keep source health live indefinitely (1 case)
 - L75: Loss counters belong only to the affected observation scope (1 case)
 - L80: Repeated errors cannot extend the age of earlier loss counts (1 case)
+- L86: Revision advances only when effective health meaningfully changes (1 case)
+- L91: Revision advances when scoped loss buckets expire or change (1 case)
+- L96: Revision advances when scope health expires from the window (1 case)
+- L101: A stale success cannot overwrite a newer source error (1 case)
 
 ## Serve shared volatile observer data through HTTP MCP and SSE
 Source: [features/observer/current_observer_api.feature](../../features/observer/current_observer_api.feature) · runner: python
@@ -367,6 +372,9 @@ Source: [features/security/node_dispatch.feature](../../features/security/node_d
 - L62: Reject JSON with the wrong operation shape (7 cases)
 - L75: Preserve valid empty and down observations without inferring failure (5 cases)
 - L86: Preserve a no-route probe as unavailable rather than fabricated packet loss (1 case)
+- L91: Reject malformed neighbor payloads without breaking valid disabled or idle shapes (4 cases)
+- L101: Preserve valid neighbor payload fixtures for disabled and established or idle states (4 cases)
+- L111: Reject malformed neighbor success payloads returned over SSH (4 cases)
 
 ## Bound SSH execution and reject misleading node results
 Source: [features/security/ssh_failure_handling.feature](../../features/security/ssh_failure_handling.feature) · runner: python
@@ -378,6 +386,13 @@ Source: [features/security/ssh_failure_handling.feature](../../features/security
 - L37: Enforce per-node and global concurrency without returning cached results (1 case)
 - L42: A failed collection cannot reuse an earlier successful result (1 case)
 - L46: Pin connection policy and reject arbitrary identity input (1 case)
+
+## Reserve stream admission before transport starts consuming events
+Source: [features/security/stream_admission.feature](../../features/security/stream_admission.feature) · runner: python
+
+- L6: Unstarted responses consume their shared subscriber slots (4 cases)
+- L17: Revocation during collection suppresses the pending event (2 cases)
+- L25: A slow God snapshot cannot outlive its credential (1 case)
 
 ## Release transport resources for disconnected and slow clients
 Source: [features/security/stream_resources.feature](../../features/security/stream_resources.feature) · runner: python

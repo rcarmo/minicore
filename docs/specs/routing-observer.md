@@ -2,7 +2,7 @@
 
 The observer feeds the workbench and bounded APIs with volatile routing state, interface counters and optional IGMP signalling.
 
-The observer is limited to routing state, interface counters and optional IGMP signalling. It does not inspect application traffic, payloads, host processes, packet captures or exported archives.
+It does not inspect application traffic, payloads or host processes, or retain packet captures or exported archives.
 
 ## Scope
 
@@ -57,6 +57,10 @@ Interface discovery uses one-second netlink dumps bounded to 256 KiB, `docker ne
 IGMP capture opens at most 18 taps. Each tap uses a locked IGMP-only filter, a 2048-byte frame buffer per `recvmsg`, up to 256 bytes of ancillary data per read, and at most 16 reads per readiness callback. The capture process admits at most 8 MiB total socket receive buffering across all open taps, and the service memory budget is 128 MiB. Ingest accepts at most 1024 packets per second. Distinct multicast groups retained across the 60-second window are capped at 256.
 
 Source health becomes `collection_timeout` if no fresh interfaces or IGMP source update arrives within 3 seconds, or if no fresh routing source update arrives within 15 seconds. Overflow, parse failure, truncation, checksum-partial packets, socket loss and kernel drops remain scoped to the affected observation source.
+
+Capture converts kernel realtime timestamps to monotonic acquisition times. A realtime/monotonic offset change greater than 10 ms closes the taps, discards queued frames and reports the source unavailable until rebinding. Small clock drift is handled conservatively; callback processing never renews a record's acquisition time. Valid Ethernet padding is excluded using the IPv4 total-length field.
+
+Observer revisions change when visible source health or loss windows change, including time-based expiry. Repeated reads of unchanged state do not create revisions. Retained IGMP records can remain visible with unavailable source health; they cannot restore that source to healthy.
 
 The observer does not write packet payloads to disk or ordinary service logs. Capture and counter services disable swap and core dumps.
 

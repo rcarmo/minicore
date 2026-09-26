@@ -680,3 +680,56 @@ def dice_no_reroll(c):
     assert (
         c.dice_retry["error_code"] is None and c.dice_selections == 1 and len(c.executor.calls) == 1
     )
+
+
+@when('the forced fault dispatcher receives "{condition}" before mutation')
+def bounded_fault_denial(c, condition):
+    import io
+    from unittest.mock import patch
+
+    import fault_dispatcher
+
+    payload = {"operation": "fault", "scenario": "core-link-failure", "action": "apply"}
+    node = "p1"
+    if condition == "unknown action":
+        payload["action"] = "caller-command-secret"
+    elif condition == "wrong node":
+        node = "p2"
+    else:
+        payload["scenario"] = "data-path-degradation"
+        node = "ce1"
+    stdin = io.TextIOWrapper(io.BytesIO(json.dumps(payload).encode()))
+    stdout = io.StringIO()
+    c.fault_denial_commands = []
+
+    def command(argv):
+        from types import SimpleNamespace
+
+        c.fault_denial_commands.append(argv)
+        assert argv == ["/sbin/tc", "-j", "qdisc", "show", "dev", "to-host1"]
+        return SimpleNamespace(
+            returncode=0, stdout='[{"kind":"netem","root":true,"handle":"9999:"}]'
+        )
+
+    with (
+        patch.object(fault_dispatcher.sys, "stdin", stdin),
+        patch.object(fault_dispatcher.sys, "stdout", stdout),
+        patch.object(fault_dispatcher.signal, "alarm"),
+        patch.dict(fault_dispatcher.os.environ, {"SSH_ORIGINAL_COMMAND": "minicore-fault"}),
+        patch.object(
+            fault_dispatcher.Path, "read_text", return_value=json.dumps({"node_id": node})
+        ),
+        patch.object(fault_dispatcher, "run", side_effect=command),
+    ):
+        fault_dispatcher.main()
+    c.fault_denial_result = json.loads(stdout.getvalue())
+    c.fault_denial_kind = condition
+
+
+@then('it returns "{code}" without executing a mutation or exposing input')
+def fault_denial_result(c, code):
+    value = c.fault_denial_result
+    assert value["status"] == "error" and value["error_code"] == code, value
+    assert value["data"] is None and value["raw_evidence"] == ""
+    assert "caller-command-secret" not in json.dumps(value)
+    assert len(c.fault_denial_commands) == (1 if c.fault_denial_kind == "foreign qdisc" else 0)

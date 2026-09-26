@@ -133,8 +133,20 @@ def main():
             data={"ok": True, "verified": True},
             raw_evidence=verify.stdout,
         )
-    except (ValueError, KeyError, TypeError, OSError, subprocess.TimeoutExpired):
-        result["error_code"] = "mutation_failed"
+    except (ValueError, KeyError, TypeError, OSError, subprocess.TimeoutExpired) as exc:
+        code = str(exc)
+        result["error_code"] = (
+            code
+            if code
+            in {
+                "denied_operation",
+                "denied_target",
+                "foreign_qdisc",
+                "output_limit",
+                "verification_failed",
+            }
+            else "mutation_failed"
+        )
     print(json.dumps(result))
 
 

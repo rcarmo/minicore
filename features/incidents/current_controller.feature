@@ -109,3 +109,12 @@ Feature: Execute only fixed God scenarios with durable recovery state
   Scenario: Cancellation preserves a selected dice intent without rerolling
     When a targeted dice request is cancelled during its durable selection write
     Then a retry uses the same chosen scenario and executes it once
+
+  Scenario Outline: Fault dispatcher preserves bounded denial reasons
+    When the forced fault dispatcher receives "<condition>" before mutation
+    Then it returns "<code>" without executing a mutation or exposing input
+    Examples:
+      | condition       | code             |
+      | unknown action  | denied_operation |
+      | wrong node      | denied_target    |
+      | foreign qdisc   | foreign_qdisc    |

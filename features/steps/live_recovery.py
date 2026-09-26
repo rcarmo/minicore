@@ -27,6 +27,23 @@ async def god_call(tool, arguments=None):
 
 
 def god(tool, arguments=None):
+    if tool == "reset_lab":
+        # Preserve only the bounded public controller projection before cleanup.
+        # Never collect credentials or the private journal into test artifacts.
+        try:
+            before = asyncio.run(god_call("get_fault_state"))
+            path = ROOT / "reports/recovery-pre-reset.json"
+            records = json.loads(path.read_text()) if path.exists() else []
+            records.append(
+                {
+                    "reset_key": (arguments or {}).get("idempotency_key"),
+                    "controller": before.structuredContent,
+                }
+            )
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(records[-32:], indent=2) + "\n")
+        except Exception:
+            pass  # Never prevent the safety reset because evidence capture failed.
     return asyncio.run(god_call(tool, arguments))
 
 

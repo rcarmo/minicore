@@ -4,14 +4,14 @@ Generated from `.feature` files by `make coverage-update`. Do not edit by hand.
 
 Implemented scenarios execute via `make acceptance`: Behave for Python contracts and real transport; Playwright-BDD for browser interactions and host-tool contracts. Host-tool tests substitute a recording Docker executable, never a healthy network. Browser tests use a disposable loopback service, not persisted lab state.
 
-`external` scenarios need real lab containers and an explicit collector; `planned` scenarios preserve unimplemented design requirements. Neither is counted as passing acceptance. Unit tests complement these scenarios; scenario counts are not line/branch coverage.
+`external` scenarios need real lab containers and an explicit collector; `planned` scenarios preserve unbound design requirements, including some behaviour covered by narrower implemented scenarios. Neither is counted as passing acceptance. Unit tests complement these scenarios; scenario counts are not line/branch coverage.
 
 | Feature | Status | Runner | Expanded cases |
 |---|---|---|---|
 | [Present bounded live node observations without inferring routing health](../../features/diagnostics/current_live_inspector.feature) | implemented | python | 3 |
 | [Current MCP results distinguish declared inventory from unavailable execution](../../features/diagnostics/current_tools.feature) | implemented | python | 9 |
 | [Collect real router routes through restricted SSH and MCP](../../features/diagnostics/live_routes.feature) | external | live lab | 9 |
-| [Execute only fixed God scenarios with durable recovery state](../../features/incidents/current_controller.feature) | implemented | python | 21 |
+| [Execute only fixed God scenarios with durable recovery state](../../features/incidents/current_controller.feature) | implemented | python | 24 |
 | [Apply bounded inventoried node and link faults through God-only commands](../../features/incidents/targeted_faults.feature) | implemented | python | 21 |
 | [Serve MCP, assets and factual APIs on one authenticated listener](../../features/integration/current_http.feature) | implemented | python | 22 |
 | [Run the initial management and MCP container](../../features/integration/initial_management.feature) | implemented | browser | 2 |
@@ -117,6 +117,7 @@ Source: [features/incidents/current_controller.feature](../../features/incidents
 - L101: A worker writes an immutable controller snapshot (1 case)
 - L105: Published controller state never exposes uncommitted reset success (1 case)
 - L109: Cancellation preserves a selected dice intent without rerolling (1 case)
+- L113: Fault dispatcher preserves bounded denial reasons (3 cases)
 
 ## Apply bounded inventoried node and link faults through God-only commands
 Source: [features/incidents/targeted_faults.feature](../../features/incidents/targeted_faults.feature) · runner: python

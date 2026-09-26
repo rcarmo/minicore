@@ -44,6 +44,6 @@ Entry IDs bind node, generation, container incarnation and message occurrence. D
 - `GET /api/v1/nodes/{id}/logs?limit=100&cursor=...` returns envelope fields, bounded rows, source metadata, timestamps, revision and optional older cursor.
 - `GET /api/v1/nodes/{id}/logs/events` sends `logs.snapshot` on connect and `logs.changed` on revision, source-status or generation change. Payloads contain metadata, not log lines.
 - Only `limit` and `cursor` are accepted page parameters. Unknown nodes return 404. Invalid query returns 400. Rotated or cross-node or cross-generation cursor returns 409. Unavailable or stale source returns 503 with a truthful envelope. Empty successful collection returns 200 with zero rows.
-- Both routes use the same authenticated policy as topology. No extra MCP tools are added.
+- Both routes use the same authenticated policy as topology. Stream admission reserves a slot before iteration starts, and closing an unread response releases it. Credentials are checked again after awaited collection, before emitting an event. No extra MCP tools are added.
 - Cursor binds revision, node and generation. If retention expires a cursor, the UI must return to the latest page explicitly.
 - Follow replaces the current page on invalidation or poll. Pause cancels in-flight page fetches and preserves visible rows and scroll position.

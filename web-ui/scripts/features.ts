@@ -9,7 +9,7 @@ const lines = [
   "",
   "Implemented scenarios execute via `make acceptance`: Behave for Python contracts and real transport; Playwright-BDD for browser interactions and host-tool contracts. Host-tool tests substitute a recording Docker executable, never a healthy network. Browser tests use a disposable loopback service, not persisted lab state.",
   "",
-  "`external` scenarios need real lab containers and an explicit collector; `planned` scenarios preserve unimplemented design requirements. Neither is counted as passing acceptance. Unit tests complement these scenarios; scenario counts are not line/branch coverage.",
+  "`external` scenarios need real lab containers and an explicit collector; `planned` scenarios preserve unbound design requirements, including some behaviour covered by narrower implemented scenarios. Neither is counted as passing acceptance. Unit tests complement these scenarios; scenario counts are not line/branch coverage.",
   "",
   "| Feature | Status | Runner | Expanded cases |",
   "|---|---|---|---|",

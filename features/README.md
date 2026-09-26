@@ -3,7 +3,7 @@
 Each feature has exactly one lifecycle tag:
 
 - `@implemented`: current behaviour with executable bindings and one runner tag: `@python`, `@browser` or `@host`.
-- `@planned`: requirements under `features/planned/`, excluded from acceptance execution.
+- `@planned`: unbound design scenarios under `features/planned/`, excluded from acceptance execution. Some describe behaviour now covered by narrower implemented scenarios; the tag classifies the scenario's binding, not whether every capability it mentions is absent.
 - `@external`: opt-in tests that require a running lab or other explicit prerequisites.
 
 The generated [coverage map](../docs/development/behavior-coverage.md) lists features, scenarios, runners and expanded case counts. Execution reports establish which cases passed.
@@ -31,8 +31,10 @@ Install Chromium with `cd web-ui && bunx playwright install chromium`. Missing d
 - The Cucumber parser rejects missing or conflicting lifecycle/runner tags and duplicate scenario names.
 - Behave receives only inventoried `@implemented @python` files.
 - Playwright-BDD binds implemented browser and host features. Missing steps fail generation.
-- The final check matches JSON results to exact feature, scenario and outline-case identities. Every implemented case must pass. Missing, skipped, undefined, failed or flaky results fail the check.
+- The final check matches JSON results to exact feature, scenario and outline-case identities. Every implemented case must pass. Missing, duplicate, unexpected, skipped, undefined, failed or flaky results fail the check.
 - A stale coverage map fails `make check`. An implemented feature omitted from a runner fails report reconciliation.
+
+Run `make acceptance` for fresh evidence: it executes both runners before checking their reports. Running the report checker alone validates the supplied reports; it cannot establish when or against which source revision they were produced.
 
 Browser acceptance starts a disposable service on loopback with temporary observations and credentials. It refuses to reuse an existing listener. Host-tool tests use temporary project copies and a recording Docker executable to check command mapping, validation and persistence. Live routing and forwarding require the separate lab suites. `make smoke` checks the running management service through its published Compose port.
 

@@ -9,6 +9,8 @@ from pathlib import Path
 
 from umcp_shared import MCPAuthenticationBusy, MCPPrincipal
 
+from .file_io import FileIO
+
 OPERATOR = {"list_nodes", "get_interfaces", "get_routes", "get_neighbors", "ping", "get_evidence"}
 GOD = {"list_fault_scenarios", "apply_fault", "get_fault_state", "reset_lab"}
 
@@ -100,20 +102,25 @@ class Policy:
             async with self._reload_lock:
                 clone = copy.copy(self)
                 clone.credentials = dict(self.credentials)
+                reload = asyncio.create_task(files.run(clone.reload))
                 try:
-                    await files.run(clone.reload)
+                    # Reload is service state, independent of the caller's lifetime.
+                    # Drain it under the lock and publish even if that caller cancels.
+                    await FileIO.drain(reload)
                 except OSError as exc:
                     if str(exc) == "file_io_busy":
                         raise MCPAuthenticationBusy("file_io_busy") from None
                     return None
-                self.credentials.clear()
-                self.credentials.update(clone.credentials)
-                self.required_file = clone.required_file
-                self._fingerprint = clone._fingerprint
-                self.invalid = clone.invalid
-                self.redaction_secrets = clone.redaction_secrets
-                self.redaction_blocked = clone.redaction_blocked
-                self.redaction_revision = clone.redaction_revision
+                finally:
+                    if reload.done() and not reload.cancelled() and reload.exception() is None:
+                        self.credentials.clear()
+                        self.credentials.update(clone.credentials)
+                        self.required_file = clone.required_file
+                        self._fingerprint = clone._fingerprint
+                        self.invalid = clone.invalid
+                        self.redaction_secrets = clone.redaction_secrets
+                        self.redaction_blocked = clone.redaction_blocked
+                        self.redaction_revision = clone.redaction_revision
                 return self.authenticate_cached(headers)
         finally:
             self._auth_pending -= 1

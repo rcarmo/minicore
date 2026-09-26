@@ -42,3 +42,12 @@ Feature: Keep configured credentials out of evidence during rotation
     When credential rotation exceeds the redaction "count" budget
     And a log event stream is opened with the new credential
     Then the stream reports unavailable redaction without evidence text
+
+  Scenario Outline: Cancelling a drained reload cannot discard credential changes
+    When a "<replacement>" credential reload finishes while its caller is cancelled
+    Then the caller stays cancelled and the revoked credential is rejected
+    And the completed reload publishes its authentication and redaction outcome
+    Examples:
+      | replacement |
+      | valid       |
+      | invalid     |

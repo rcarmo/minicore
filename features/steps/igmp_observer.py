@@ -63,11 +63,14 @@ def _build_ipv4_packet(
     return bytes(header) + payload
 
 
-def _build_ethernet_frame(payload: bytes, *, ethertype: int = ETHERTYPE_IPV4) -> bytes:
+def _build_ethernet_frame(
+    payload: bytes, *, ethertype: int = ETHERTYPE_IPV4, trailing: bytes = b""
+) -> bytes:
     return (
         bytes.fromhex("01005e000001 020000000001".replace(" ", ""))
         + ethertype.to_bytes(2, "big")
         + payload
+        + trailing
     )
 
 
@@ -159,6 +162,18 @@ def _frame_for_message(message: str) -> bytes:
     return _build_ethernet_frame(packet)
 
 
+def _frame_variant(variant: str) -> tuple[bytes, str]:
+    if variant == "unpadded v2 report":
+        return _frame_for_message("v2 report"), "v2 report"
+    if variant == "padded minimum Ethernet zero trailing bytes":
+        frame = _frame_for_message("v2 report")
+        return frame + (b"\x00" * (60 - len(frame))), "v2 report"
+    if variant == "padded minimum Ethernet nonzero trailing bytes":
+        frame = _frame_for_message("v2 report")
+        return frame + bytes(range(1, 60 - len(frame) + 1)), "v2 report"
+    raise AssertionError(variant)
+
+
 def _bad_frame(condition: str) -> tuple[bytes, str]:
     if condition == "invalid IPv4 checksum":
         frame = _build_ethernet_frame(
@@ -201,6 +216,21 @@ def _bad_frame(condition: str) -> tuple[bytes, str]:
         frame = _build_ethernet_frame(
             _build_ipv4_packet(bytes(igmp), source="10.0.0.2", destination="224.0.0.22")
         )
+    elif condition == "truncated by IPv4 total length despite padding":
+        packet = _build_ipv4_packet(
+            _igmp_v3_query("239.1.1.1", []),
+            source="10.0.0.1",
+            destination="224.0.0.1",
+        )
+        truncated = bytearray(packet)
+        truncated[2] = 0
+        truncated[3] = 24
+        truncated[10] = 0
+        truncated[11] = 0
+        checksum = _checksum(bytes(truncated[:20]))
+        truncated[10] = (checksum >> 8) & 0xFF
+        truncated[11] = checksum & 0xFF
+        frame = _build_ethernet_frame(bytes(truncated), trailing=b"\x00\x00\x00\x00")
     elif condition == "above snap length":
         frame = _frame_for_message("v2 report") + (
             b"\x00" * (MAX_FRAME + 1 - len(_frame_for_message("v2 report")))
@@ -325,6 +355,11 @@ def parser_callable(context):
 def synthetic_frame(context, message):
     context.message = message
     context.frame = _frame_for_message(message)
+
+
+@given('a synthetic IGMP frame variant "{variant}"')
+def padded_frame(context, variant):
+    context.frame, context.message = _frame_variant(variant)
 
 
 @when("the parser decodes the frame with verified checksums")

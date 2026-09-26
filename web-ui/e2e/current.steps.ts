@@ -576,6 +576,53 @@ Then(
 );
 
 Then(
+  "a successful automatic poll after a 503 clears the routing error and restores comparison",
+  async ({ page }) => {
+    await page.clock.install();
+    const fixture = await routingFixture(page);
+    let call = 0;
+    await page.route("**/api/v1/routing?*", async (route) => {
+      call++;
+      if (call === 2) {
+        await route.fulfill({
+          status: 503,
+          json: { error_code: "execution_timeout" },
+        });
+        return;
+      }
+      const value = fixture("10.200.8.0/29");
+      for (const node of value.data.nodes) {
+        node.collected_at = new Date().toISOString();
+        node.data.bgp =
+          call === 1
+            ? { paths: [{ valid: true, bestpath: { overall: true } }] }
+            : { paths: [] };
+      }
+      await route.fulfill({ json: value });
+    });
+    await page.goto("/#p1");
+    await page.getByRole("button", { name: "Prefix", exact: true }).click();
+    await expect(
+      page.getByRole("region", { name: "Routing comparison" }),
+    ).toContainText("Waiting for two fresh updates");
+    await page.clock.fastForward(5000);
+    await expect(
+      page.getByRole("region", { name: "Routing layers" }),
+    ).toContainText("Refresh failed — showing the last update");
+    await expect(
+      page.getByRole("region", { name: "Routing comparison" }),
+    ).toContainText("Comparison unavailable");
+    await page.clock.fastForward(5000);
+    await expect(
+      page.getByRole("region", { name: "Routing layers" }),
+    ).not.toContainText("Refresh failed — showing the last update");
+    await expect(
+      page.getByRole("region", { name: "Routing comparison" }),
+    ).toContainText("BGP: withdrawn");
+  },
+);
+
+Then(
   "a new generation clears earlier routing comparisons without moving node selection",
   async ({ page }) => {
     const fixture = await routingFixture(page);

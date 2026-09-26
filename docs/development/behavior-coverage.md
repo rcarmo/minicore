@@ -20,7 +20,7 @@ Implemented scenarios execute via `make acceptance`: Behave for Python contracts
 | [Verify MCP transport with independent clients and hostile wire inputs](../../features/integration/mcp_protocol.feature) | implemented | python | 25 |
 | [Discover current host counter mappings for inventory data interfaces](../../features/observer/current_host_observer.feature) | implemented | python | 12 |
 | [Limit live capture to inventoried IGMP control messages](../../features/observer/current_igmp_capture.feature) | implemented | python | 15 |
-| [Decode bounded recent IGMP signalling from Ethernet IPv4 frames](../../features/observer/current_igmp.feature) | implemented | python | 16 |
+| [Decode bounded recent IGMP signalling from Ethernet IPv4 frames](../../features/observer/current_igmp.feature) | implemented | python | 20 |
 | [Retain only bounded recent observer records in memory](../../features/observer/current_memory.feature) | implemented | python | 16 |
 | [Serve shared volatile observer data through HTTP MCP and SSE](../../features/observer/current_observer_api.feature) | implemented | python | 12 |
 | [Share volatile source collection through a bounded Unix socket](../../features/observer/current_observer_service.feature) | implemented | python | 12 |
@@ -59,7 +59,7 @@ Implemented scenarios execute via `make acceptance`: Behave for Python contracts
 | [Reconcile periodic snapshots and topology notifications](../../features/planned/visualization/topology_updates.feature) | planned | not bound | 6 |
 | [Keep MCP and web responsive while filesystem operations are slow](../../features/security/async_file_io.feature) | implemented | python | 19 |
 | [Bound authentication work before credential reload](../../features/security/auth_admission.feature) | implemented | python | 6 |
-| [Keep configured credentials out of evidence during rotation](../../features/security/credential_redaction.feature) | implemented | python | 10 |
+| [Keep configured credentials out of evidence during rotation](../../features/security/credential_redaction.feature) | implemented | python | 12 |
 | [Current service access and input boundaries](../../features/security/current_access.feature) | implemented | python | 29 |
 | [Correlate bounded authorization and fixed mutation audit records](../../features/security/current_audit.feature) | implemented | python | 2 |
 | [Isolate MCP execution and cancellation between callers](../../features/security/mcp_execution_isolation.feature) | implemented | python | 12 |
@@ -75,7 +75,7 @@ Implemented scenarios execute via `make acceptance`: Behave for Python contracts
 | [Volatile network events panel](../../features/visualization/current_network_events.feature) | implemented | browser | 13 |
 | [Distinguish declared domains and live exact-prefix evidence](../../features/visualization/current_routing_layers.feature) | implemented | python | 17 |
 | [Bounded topology and node-log invalidation streams](../../features/visualization/current_streams.feature) | implemented | python | 6 |
-| [Current network workbench interactions](../../features/visualization/current_workbench.feature) | implemented | browser | 40 |
+| [Current network workbench interactions](../../features/visualization/current_workbench.feature) | implemented | browser | 41 |
 
 ## Present bounded live node observations without inferring routing health
 Source: [features/diagnostics/current_live_inspector.feature](../../features/diagnostics/current_live_inspector.feature) · runner: python
@@ -195,7 +195,8 @@ Source: [features/observer/current_igmp.feature](../../features/observer/current
 
 - L3: Expose an explicit bounded IGMP frame decoder (1 case)
 - L7: Decode supported bounded IGMP messages (7 cases)
-- L21: Reject malformed or unsupported bounded inputs (8 cases)
+- L21: Decode valid IGMP Ethernet padding variants (3 cases)
+- L31: Reject malformed or unsupported bounded inputs (9 cases)
 
 ## Retain only bounded recent observer records in memory
 Source: [features/observer/current_memory.feature](../../features/observer/current_memory.feature) · runner: python
@@ -315,6 +316,7 @@ Source: [features/security/credential_redaction.feature](../../features/security
 - L27: Redaction memory has a fixed fail-closed budget (2 cases)
 - L37: Invalid reload does not erase retired-secret redaction (1 case)
 - L41: Exhausted redaction publishes only unavailable log metadata on SSE (1 case)
+- L46: Cancelling a drained reload cannot discard credential changes (2 cases)
 
 ## Current service access and input boundaries
 Source: [features/security/current_access.feature](../../features/security/current_access.feature) · runner: python
@@ -522,7 +524,8 @@ Source: [features/visualization/current_workbench.feature](../../features/visual
 - L100: God fault modes act on exactly one selected node or link (1 case)
 - L103: Live interface and summary inspectors refresh without reselection (1 case)
 - L106: Routing panels refresh automatically and pause collection when minimized (1 case)
-- L109: Inspector wording is short and specific (1 case)
-- L112: One compact toolbar groups navigation and fault controls (1 case)
-- L115: Older logs can interrupt an in-flight follow refresh (1 case)
-- L118: A restored generation leaves the God toolbar usable (1 case)
+- L109: Automatic routing refresh recovers after a 503 without manual collection (1 case)
+- L112: Inspector wording is short and specific (1 case)
+- L115: One compact toolbar groups navigation and fault controls (1 case)
+- L118: Older logs can interrupt an in-flight follow refresh (1 case)
+- L121: A restored generation leaves the God toolbar usable (1 case)

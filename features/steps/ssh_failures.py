@@ -130,7 +130,9 @@ def released(c):
 @when("an SSH parent exits while a child holds the output pipe open")
 def orphan(c):
     original = asyncio.timeout
-    with patch("minicore_mcp.ssh_adapter.asyncio.timeout", side_effect=lambda _: original(0.15)):
+    # Include interpreter startup under CPU contention, then require recorded PIDs.
+    # 150 ms could expire before this fixture spawned any descendants.
+    with patch("minicore_mcp.ssh_adapter.asyncio.timeout", side_effect=lambda _: original(2)):
         c.result = execute(c, "orphan")
 
 

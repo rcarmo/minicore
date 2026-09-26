@@ -18,17 +18,28 @@ Feature: Decode bounded recent IGMP signalling from Ethernet IPv4 frames
       | v3 query  |
       | v3 report |
 
+  Scenario Outline: Decode valid IGMP Ethernet padding variants
+    Given a synthetic IGMP frame variant "<variant>"
+    When the parser decodes the frame with verified checksums
+    Then it returns the expected IGMP observation fields for "<message>"
+    Examples:
+      | variant                              | message   |
+      | unpadded v2 report                   | v2 report |
+      | padded minimum Ethernet zero trailing bytes    | v2 report |
+      | padded minimum Ethernet nonzero trailing bytes | v2 report |
+
   Scenario Outline: Reject malformed or unsupported bounded inputs
     Given a synthetic IGMP frame with condition "<condition>"
     When the parser validates the frame
     Then it rejects the frame as "<reason>"
     Examples:
-      | condition              | reason                        |
-      | invalid IPv4 checksum  | invalid_ipv4_checksum         |
-      | invalid IGMP checksum  | invalid_igmp_checksum         |
-      | fragmented datagram    | fragmented_ipv4_datagram      |
-      | truncated frame        | truncated_igmp_message        |
-      | above snap length      | frame_too_large               |
-      | unsupported VLAN frame | unsupported_vlan_frame        |
-      | excess v3 sources      | igmp_source_limit_exceeded    |
-      | checksum offload       | unsupported_checksum_offload  |
+      | condition                                        | reason                        |
+      | invalid IPv4 checksum                            | invalid_ipv4_checksum         |
+      | invalid IGMP checksum                            | invalid_igmp_checksum         |
+      | fragmented datagram                              | fragmented_ipv4_datagram      |
+      | truncated frame                                  | truncated_igmp_message        |
+      | truncated by IPv4 total length despite padding   | truncated_igmp_message        |
+      | above snap length                                | frame_too_large               |
+      | unsupported VLAN frame                           | unsupported_vlan_frame        |
+      | excess v3 sources                                | igmp_source_limit_exceeded    |
+      | checksum offload                                 | unsupported_checksum_offload  |

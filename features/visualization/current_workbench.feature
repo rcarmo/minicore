@@ -106,6 +106,9 @@ Feature: Current network workbench interactions
   Scenario: Routing panels refresh automatically and pause collection when minimized
     Then the routing panel refreshes evidence without manual collection and pauses when minimized
 
+  Scenario: Automatic routing refresh recovers after a 503 without manual collection
+    Then a successful automatic poll after a 503 clears the routing error and restores comparison
+
   Scenario: Inspector wording is short and specific
     Then the inspectors use plain status labels and keep source details collapsed
 

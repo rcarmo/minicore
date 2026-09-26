@@ -5,13 +5,81 @@ import {
   compile,
 } from "@cucumber/gherkin";
 import { IdGenerator } from "@cucumber/messages";
+
+type ScenarioCase = {
+  key: string;
+  line: number;
+  order: number;
+  outline: boolean;
+  scenarioLine: number;
+  scenarioName: string;
+  behaveSuffix: string | null;
+  playwrightTitle: string;
+  exampleBlock: number | null;
+  exampleRow: number | null;
+  exampleLine: number | null;
+};
+
+type ScenarioRecord = {
+  name: string;
+  line: number;
+  cases: number;
+  caseIds: ScenarioCase[];
+};
+
 export type FeatureRecord = {
   path: string;
   name: string;
   status: string;
   runner: string;
-  scenarios: { name: string; line: number; cases: number }[];
+  scenarios: ScenarioRecord[];
 };
+
+function buildScenarioCases(path: string, scenario: any): ScenarioCase[] {
+  if (scenario.keyword !== "Scenario Outline")
+    return [
+      {
+        key: `${path}:${scenario.location.line}`,
+        line: scenario.location.line,
+        order: 1,
+        outline: false,
+        scenarioLine: scenario.location.line,
+        scenarioName: scenario.name,
+        behaveSuffix: null,
+        playwrightTitle: scenario.name,
+        exampleBlock: null,
+        exampleRow: null,
+        exampleLine: null,
+      },
+    ];
+
+  const cases: ScenarioCase[] = [];
+  let order = 0;
+  for (const [blockIndex, examples] of (scenario.examples ?? []).entries()) {
+    for (const [rowIndex, row] of (examples.tableBody ?? []).entries()) {
+      order += 1;
+      cases.push({
+        key: `${path}:${scenario.location.line}@${blockIndex + 1}.${rowIndex + 1}`,
+        line: row.location.line,
+        order,
+        outline: true,
+        scenarioLine: scenario.location.line,
+        scenarioName: (examples.tableHeader?.cells ?? []).reduce(
+          (name: string, cell: any, i: number) =>
+            name.split(`<${cell.value}>`).join(row.cells[i].value),
+          scenario.name,
+        ),
+        behaveSuffix: `@${blockIndex + 1}.${rowIndex + 1}`,
+        playwrightTitle: `Example #${order}`,
+        exampleBlock: blockIndex + 1,
+        exampleRow: rowIndex + 1,
+        exampleLine: row.location.line,
+      });
+    }
+  }
+  return cases;
+}
+
 export function parseFeature(path: string, text: string): FeatureRecord {
   const ids = IdGenerator.incrementing(),
     doc = new Parser(
@@ -59,6 +127,19 @@ export function parseFeature(path: string, text: string): FeatureRecord {
       throw Error(
         `Scenario cannot override lifecycle/runner or skip: ${path}:${s.location.line}`,
       );
+
+  const scenarioRecords = scenarios.map((s) => ({
+    name: s.name,
+    line: s.location.line,
+    caseIds: buildScenarioCases(path, s),
+  }));
+  for (const [index, scenario] of scenarioRecords.entries()) {
+    const compiledCases = pickles.filter((p) =>
+      p.astNodeIds.includes(scenarios[index].id),
+    ).length;
+    if (compiledCases !== scenario.caseIds.length)
+      throw Error(`Expanded case mismatch: ${path}:${scenario.line}`);
+  }
   return {
     path,
     name: doc.feature.name,
@@ -66,10 +147,9 @@ export function parseFeature(path: string, text: string): FeatureRecord {
     runner:
       runners[0]?.slice(1) ??
       (lifecycle[0] === "@external" ? "live lab" : "not bound"),
-    scenarios: scenarios.map((s) => ({
-      name: s.name,
-      line: s.location.line,
-      cases: pickles.filter((p) => p.astNodeIds.includes(s.id)).length,
+    scenarios: scenarioRecords.map((s) => ({
+      ...s,
+      cases: s.caseIds.length,
     })),
   };
 }

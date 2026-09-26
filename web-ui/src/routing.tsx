@@ -85,6 +85,7 @@ export function RoutingLayers({
           throw Error(`Routing request failed (${response.status})`);
         const value = validateRouting(await response.json(), snapshot, prefix);
         if (!disposed) {
+          setError("");
           if (complete(value)) {
             setPrevious(lastGood.current);
             lastGood.current = value;

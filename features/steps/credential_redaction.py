@@ -236,3 +236,64 @@ def redaction_event(c):
     assert payload["status"] == "unavailable" and payload["error_code"] == "redaction_unavailable"
     assert set(payload) == {"node_id", "generation", "revision", "status", "error_code"}
     assert c.old_token not in c.redaction_event and c.new_token not in c.redaction_event
+
+
+@when('a "{replacement}" credential reload finishes while its caller is cancelled')
+def cancelled_reload(c, replacement):
+    import threading
+
+    from minicore_mcp.policy import Policy
+
+    async def run():
+        original = Policy.reload
+        entered = threading.Event()
+        release = threading.Event()
+        c.cancel_replacement = replacement
+        if replacement == "valid":
+            replace_token(c, c.new_token)
+        else:
+            c.tokens.write_text("{")
+
+        def reload_then_wait(policy):
+            original(policy)
+            entered.set()
+            release.wait(2)
+
+        with patch.object(Policy, "reload", reload_then_wait):
+            task = asyncio.create_task(
+                c.policy.authenticate_async(
+                    {"authorization": "Bearer " + c.old_token}, c.server.auth_files
+                )
+            )
+            while not entered.is_set():
+                await asyncio.sleep(0.001)
+            task.cancel()
+            await asyncio.sleep(0.01)
+            c.cancel_waited = not task.done()
+            release.set()
+            c.cancel_result = (await asyncio.gather(task, return_exceptions=True))[0]
+        # No later authentication is allowed to repair the abandoned reload.
+        c.cancel_old = c.policy.authenticate_cached({"authorization": "Bearer " + c.old_token})
+        c.cancel_new = c.policy.authenticate_cached({"authorization": "Bearer " + c.new_token})
+        c.cancel_secrets = c.policy.redaction_secrets
+        c.cancel_invalid = c.policy.invalid
+        c.cancel_pending = c.policy._auth_pending
+
+    asyncio.run(run())
+
+
+@then("the caller stays cancelled and the revoked credential is rejected")
+def cancelled_revoked(c):
+    assert c.cancel_waited and isinstance(c.cancel_result, asyncio.CancelledError)
+    assert c.cancel_old is None, "cancelled reload left a revoked credential cached"
+    assert c.cancel_pending == 0
+
+
+@then("the completed reload publishes its authentication and redaction outcome")
+def cancelled_published(c):
+    assert c.old_token in c.cancel_secrets
+    if c.cancel_replacement == "valid":
+        assert c.cancel_new is not None and not c.cancel_invalid
+        assert c.new_token in c.cancel_secrets
+    else:
+        assert c.cancel_new is None and c.cancel_invalid

@@ -618,9 +618,13 @@ def activity_execution(c):
 
     from umcp_shared import MCPRequestContext
 
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
     class Slow:
         async def execute(self, node, request):
-            await asyncio.sleep(0.1)
+            entered.set()
+            await release.wait()
             return {
                 "status": "ok",
                 "error_code": None,
@@ -648,9 +652,12 @@ def activity_execution(c):
                 ),
             )
         )
-        await asyncio.sleep(0.03)
-        c.during = c.server.activity.snapshot(c.generation)
-        await task
+        try:
+            await asyncio.wait_for(entered.wait(), 3)
+            c.during = c.server.activity.snapshot(c.generation)
+        finally:
+            release.set()
+            await task
         c.after = c.server.activity.snapshot(c.generation)
 
     asyncio.run(execute())

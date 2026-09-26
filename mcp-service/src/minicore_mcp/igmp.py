@@ -104,8 +104,9 @@ def parse_igmp_ethernet_frame(frame: bytes, *, checksum_policy: str) -> dict:
     total_length = int.from_bytes(packet[2:4], "big")
     if total_length < header_length or len(packet) < total_length:
         raise InvalidInputError("truncated_ipv4_datagram")
-    if len(packet) != total_length:
-        raise InvalidInputError("inconsistent_ipv4_length")
+    # Ethernet may pad a short IPv4 datagram to its minimum payload size.
+    # Only the declared IP bytes belong to checksums and IGMP length checks.
+    packet = packet[:total_length]
     if _checksum(packet[:header_length]) != 0:
         raise InvalidInputError("invalid_ipv4_checksum")
     if packet[9] != IPPROTO_IGMP:

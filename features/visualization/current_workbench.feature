@@ -114,3 +114,6 @@ Feature: Current network workbench interactions
 
   Scenario: Older logs can interrupt an in-flight follow refresh
     Then log paging stays actionable during refresh and cancels the live request
+
+  Scenario: A restored generation leaves the God toolbar usable
+    Then a successful reset advances generation and enables Inspect without requiring visible status text

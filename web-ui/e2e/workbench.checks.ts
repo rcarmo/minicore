@@ -129,9 +129,8 @@ export async function topologyReconciliation({ page }: { page: Page }) {
   await page.clock.install();
   let revision = 1,
     fetches = 0;
+  const data = await (await page.request.get("/api/v1/topology")).json();
   await page.route("**/api/v1/topology*", async (route) => {
-    const response = await route.fetch();
-    const data = await response.json();
     fetches++;
     await route.fulfill({ json: { ...data, revision: "test-" + revision } });
   });
@@ -160,4 +159,5 @@ export async function topologyReconciliation({ page }: { page: Page }) {
   await expect(
     page.getByRole("heading", { name: "P1", exact: true }),
   ).toBeVisible();
+  await page.unrouteAll({ behavior: "wait" });
 }

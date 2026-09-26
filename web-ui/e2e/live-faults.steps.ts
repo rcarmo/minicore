@@ -217,9 +217,14 @@ Then(
   "restoring through the toolbar restarts pe1 and clears the fault",
   async ({ state }) => {
     await state.god.getByRole("button", { name: "Restore lab" }).click();
+    // Reset advances generation, which clears and hides the status message.
+    // Assert usable controls rather than waiting for a hidden role locator.
     await expect(
-      state.god.getByRole("status", { name: "Fault mode" }),
-    ).not.toContainText("Applying", { timeout: 90000 });
+      state.god.getByRole("button", { name: "Restore lab" }),
+    ).toBeEnabled({ timeout: 90000 });
+    await expect(
+      state.god.getByRole("button", { name: "Inspect", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     await expect(state.god.getByLabel("Controller ground truth")).toContainText(
       "baseline",
       { timeout: 90000 },

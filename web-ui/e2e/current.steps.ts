@@ -1426,3 +1426,53 @@ Then(
     }
   },
 );
+
+Then(
+  "a successful reset advances generation and enables Inspect without requiring visible status text",
+  async ({ page }) => {
+    const topology = await (await page.request.get("/api/v1/topology")).json();
+    let generation = topology.generation;
+    let state = "active";
+    let resets = 0;
+    await page.route("**/api/v1/view", (r) =>
+      r.fulfill({ json: { can_god: true, fault_control: true } }),
+    );
+    await page.route("**/api/v1/topology?*", (r) =>
+      r.fulfill({
+        json: {
+          ...topology,
+          generation,
+          revision: `reset-${generation}`,
+          controller: { state, verified: true },
+          view: new URL(r.request().url()).searchParams.get("view"),
+        },
+      }),
+    );
+    await page.route("**/api/v1/faults/reset", (r) => {
+      resets++;
+      generation++;
+      state = "baseline";
+      return r.fulfill({
+        json: { error_code: null, data: { state, verified: true, generation } },
+      });
+    });
+    await page.goto("/#p1");
+    await page.getByRole("checkbox", { name: /God mode/ }).check();
+    await expect(page.getByLabel("Controller ground truth")).toContainText(
+      "active",
+    );
+    await page.getByRole("button", { name: "Restore lab" }).click();
+    await expect(page.getByLabel("Controller ground truth")).toContainText(
+      "baseline",
+    );
+    await expect(
+      page.getByRole("button", { name: "Restore lab" }),
+    ).toBeEnabled();
+    await expect(
+      page.getByRole("button", { name: "Inspect", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(resets).toBe(1);
+    expect(generation).toBe(topology.generation + 1);
+    await page.unrouteAll({ behavior: "wait" });
+  },
+);

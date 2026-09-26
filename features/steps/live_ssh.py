@@ -428,6 +428,8 @@ def cancel_real_ssh(c):
         task = pool.submit(probe)
         started.wait()
         time.sleep(0.4)
+        c.cancelled_ssh_processes = diagnostic_processes()
+        assert c.cancelled_ssh_processes, "probe SSH process was not observed before cancellation"
         cancel = httpx.post(
             base,
             headers=h,
@@ -455,15 +457,39 @@ def route_after_cancel(c):
     assert r.status_code == 200 and r.json()["status"] == "ok"
 
 
-@then("no local diagnostic SSH process remains after cancellation")
-def no_local_ssh(c):
+def diagnostic_processes():
+    # PID plus start time avoids mistaking a new observer process for a leak.
+    code = """import json,pathlib
+found=[]
+for entry in pathlib.Path('/proc').iterdir():
+ if not entry.name.isdigit(): continue
+ try:
+  args=(entry/'cmdline').read_bytes().split(b'\\0')
+  if args and args[0] in (b'ssh',b'/usr/bin/ssh') and b'diagnostic@172.30.250.11' in args:
+   stat=(entry/'stat').read_text().rsplit(')',1)[1].split()
+   found.append([entry.name,stat[19]])
+ except (FileNotFoundError,ProcessLookupError): pass
+print(json.dumps(found))
+"""
     p = subprocess.run(
-        ["docker", "exec", "minicore-management-1", "ps", "-o", "args"],
+        ["docker", "exec", "minicore-management-1", "python", "-c", code],
         capture_output=True,
         text=True,
         check=True,
+        timeout=5,
     )
-    assert "diagnostic@172.30.250.11" not in p.stdout, p.stdout
+    return {tuple(row) for row in json.loads(p.stdout)}
+
+
+@then("no local diagnostic SSH process remains after cancellation")
+def no_local_ssh(c):
+    deadline = time.monotonic() + 3
+    remaining = c.cancelled_ssh_processes
+    while remaining and time.monotonic() < deadline:
+        remaining &= diagnostic_processes()
+        if remaining:
+            time.sleep(0.1)
+    assert not remaining, f"pre-cancellation SSH processes remain: {remaining}"
 
 
 @when("the adapter attempts p1 with a wrong diagnostic private key")

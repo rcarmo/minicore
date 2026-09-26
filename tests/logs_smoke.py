@@ -25,12 +25,33 @@ while time.monotonic() < deadline:
 stream.close()
 conn.close()
 assert seen >= {b"logs.snapshot", b"logs.changed"}, seen
-conn = http.client.HTTPConnection(url.hostname, url.port, timeout=5)
-conn.request("GET", f"/api/v1/nodes/{node}/logs?limit=2")
-response = conn.getresponse()
-assert response.status == 200
-page = json.loads(response.read())
-conn.close()
+# An invalidation may report restart unavailability before the collector recovers.
+# Retry only known transient source errors, never malformed or denied evidence.
+deadline = time.monotonic() + 25
+page = None
+while time.monotonic() < deadline:
+    conn = http.client.HTTPConnection(
+        url.hostname, url.port, timeout=min(5, max(0.1, deadline - time.monotonic()))
+    )
+    try:
+        conn.request("GET", f"/api/v1/nodes/{node}/logs?limit=2")
+        response = conn.getresponse()
+        value = json.loads(response.read())
+        if response.status == 200:
+            page = value
+            break
+        code = value.get("error_code")
+        assert response.status == 503 and code in {
+            "node_unavailable",
+            "collector_stale",
+            "collection_timeout",
+            "backend_not_configured",
+            "generation_mismatch",
+        }, (response.status, code)
+    finally:
+        conn.close()
+    time.sleep(0.5)
+assert page is not None, "log source did not recover within 25 seconds"
 assert len(page["data"]["entries"]) == 2
 assert page["data"]["next_cursor"]
 assert page["collected_at"] and page["error_code"] is None

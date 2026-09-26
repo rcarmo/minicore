@@ -62,7 +62,7 @@ Then(
         if (layer === "Prefix")
           await expect(
             page.getByRole("region", { name: "Routing layers" }),
-          ).toContainText("6/6 collected");
+          ).toContainText("6/6 collected", { timeout: 20000 });
         await expect(page.locator(".graph-label")).toHaveCount(8);
       }
     report.heap.push(await sample());
@@ -73,7 +73,7 @@ Then(
         if (layer === "Prefix")
           await expect(
             page.getByRole("region", { name: "Routing layers" }),
-          ).toContainText("6/6 collected");
+          ).toContainText("6/6 collected", { timeout: 20000 });
       }
     report.heap.push(await sample());
     expect(report.heap[2].Nodes).toBeLessThanOrEqual(

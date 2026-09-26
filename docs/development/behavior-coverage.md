@@ -33,6 +33,7 @@ Implemented scenarios execute via `make acceptance`: Behave for Python contracts
 | [Recover actual fixed faults after process interruption](../../features/operations/live_recovery.feature) | external | live lab | 9 |
 | [Verify actual God-targeted node link and random faults](../../features/operations/live_targeted.feature) | external | live lab | 7 |
 | [Walk through real faults with separate God and Operator browser views](../../features/operations/live_walkthrough.feature) | external | browser | 4 |
+| [Wait for fresh log evidence after a restart invalidation](../../features/operations/log_smoke.feature) | implemented | python | 3 |
 | [Boot real network nodes and observe live logs](../../features/operations/node_boot.feature) | external | live lab | 4 |
 | [Issue bounded diagnostic commands in Operator mode](../../features/planned/diagnostics/operator_commands.feature) | planned | not bound | 15 |
 | [Control predefined lab faults in God mode](../../features/planned/incidents/god_fault_control.feature) | planned | not bound | 23 |
@@ -273,6 +274,13 @@ Source: [features/operations/current_log_collector.feature](../../features/opera
 - L18: Collect declared nodes only with fixed log requests (1 case)
 - L25: Reject an unknown selected node before collection (1 case)
 - L30: Refuse overlapping host collectors (1 case)
+
+## Wait for fresh log evidence after a restart invalidation
+Source: [features/operations/log_smoke.feature](../../features/operations/log_smoke.feature) · runner: python
+
+- L3: A log change can precede source recovery (1 case)
+- L7: Persistent source failure cannot pass the log smoke (1 case)
+- L11: Invalid evidence is not treated as a transient restart gap (1 case)
 
 ## Keep MCP and web responsive while filesystem operations are slow
 Source: [features/security/async_file_io.feature](../../features/security/async_file_io.feature) · runner: python

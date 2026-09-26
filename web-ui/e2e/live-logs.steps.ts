@@ -15,12 +15,22 @@ When("I open p1 in the network workbench and select Logs", async ({ page }) => {
   await page.goto("/#p1");
   await page.getByRole("button", { name: "Logs", exact: true }).click();
 });
-Then("real container-source entries are displayed", async ({ page }) => {
-  await expect(page.locator(".log-entry").first()).toBeVisible();
-  await expect(
-    page.getByText("Container stdout/stderr", { exact: false }),
-  ).toBeVisible();
-});
+Then(
+  "real container-source entries are displayed",
+  async ({ page, request }) => {
+    await expect(page.locator(".log-entry").first()).toBeVisible();
+    const response = await request.get("/api/v1/nodes/p1/logs");
+    expect(response.status()).toBe(200);
+    const result = await response.json();
+    expect(result.data.source).toBe("container");
+    expect(result.data.entries.length).toBeGreaterThan(0);
+    expect(
+      result.data.entries.every(
+        (entry: { source: string }) => entry.source === "container",
+      ),
+    ).toBe(true);
+  },
+);
 Then(
   "successful startup events are visible without capability failures",
   async ({ page }) => {

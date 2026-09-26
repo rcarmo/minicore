@@ -82,6 +82,12 @@ Given(
       state.operator.getByRole("checkbox", { name: /God mode/ }),
     ).toBeDisabled();
     await state.god.getByRole("checkbox", { name: /God mode/ }).check();
+    // Arming before the first real generation arrives is intentionally cleared.
+    // Wait for the authorised snapshot, not just the initially rendered graph.
+    await expect(state.god.getByLabel("Controller ground truth")).toContainText(
+      "baseline",
+      { timeout: 20000 },
+    );
   },
 );
 When(

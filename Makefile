@@ -114,3 +114,6 @@ observer-capture-start:
 	sh scripts/observer-capture-service.sh start
 observer-capture-stop:
 	sh scripts/observer-capture-service.sh stop
+
+live-health:
+	.venv/bin/behave features/operations/live_management_health.feature

@@ -88,3 +88,8 @@ Feature: Generate and manage the declared containers from the host only
 
   Scenario: Counter-only and IGMP services cannot replace each other's active socket
     Then observer service launchers reject a concurrently active peer service
+
+  Scenario: Readiness checks do not start a Python interpreter
+    When the canonical deployment is generated twice
+    Then management probes its HTTP listener with the bundled bounded native client
+    And the readiness deadline and container isolation remain unchanged

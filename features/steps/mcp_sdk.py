@@ -50,14 +50,10 @@ def sdk_fixture(c):
                 "volumes": [str(c.sdk_dir / "tokens.json") + ":/run/secrets/tokens.json:ro"],
                 "ports": [f"127.0.0.1:{c.sdk_port}:9000"],
                 "healthcheck": {
-                    "test": [
-                        "CMD",
-                        "python",
-                        "-c",
-                        "import urllib.request;urllib.request.urlopen('http://127.0.0.1:9000/healthz')",
-                    ],
+                    **json.loads((ROOT / "compose/compose.json").read_text())["services"][
+                        "management"
+                    ]["healthcheck"],
                     "interval": "1s",
-                    "timeout": "2s",
                     "retries": 10,
                 },
             }

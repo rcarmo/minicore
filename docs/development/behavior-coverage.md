@@ -24,11 +24,12 @@ Implemented scenarios execute via `make acceptance`: Behave for Python contracts
 | [Retain only bounded recent observer records in memory](../../features/observer/current_memory.feature) | implemented | python | 20 |
 | [Serve shared volatile observer data through HTTP MCP and SSE](../../features/observer/current_observer_api.feature) | implemented | python | 12 |
 | [Share volatile source collection through a bounded Unix socket](../../features/observer/current_observer_service.feature) | implemented | python | 12 |
-| [Generate and manage the declared containers from the host only](../../features/operations/current_host_tools.feature) | implemented | host | 23 |
+| [Generate and manage the declared containers from the host only](../../features/operations/current_host_tools.feature) | implemented | host | 24 |
 | [Collect bounded container evidence without service-side Docker access](../../features/operations/current_log_collector.feature) | implemented | host | 7 |
 | [Validate isolated network event models and module exports](../../features/operations/current_network_event_models.feature) | implemented | host | 5 |
 | [Inject and reset each real lab fault through God MCP](../../features/operations/live_faults.feature) | external | live lab | 1 |
 | [Prove routed data-path isolation independently of baseline reachability](../../features/operations/live_isolation.feature) | external | live lab | 3 |
+| [Detect management readiness with a bounded native HTTP probe](../../features/operations/live_management_health.feature) | external | live lab | 4 |
 | [Verify read-only observer host sources against the local lab](../../features/operations/live_observer.feature) | external | live lab | 11 |
 | [Measure local release resources without inferring capacity guarantees](../../features/operations/live_performance.feature) | external | browser | 1 |
 | [Recover actual fixed faults after process interruption](../../features/operations/live_recovery.feature) | external | live lab | 9 |
@@ -274,6 +275,7 @@ Source: [features/operations/current_host_tools.feature](../../features/operatio
 - L82: Build dependencies resolve through exact release version locks (1 case)
 - L86: Management observer memory cannot spill through swap or core dumps (1 case)
 - L89: Counter-only and IGMP services cannot replace each other's active socket (1 case)
+- L92: Readiness checks do not start a Python interpreter (1 case)
 
 ## Collect bounded container evidence without service-side Docker access
 Source: [features/operations/current_log_collector.feature](../../features/operations/current_log_collector.feature) · runner: host

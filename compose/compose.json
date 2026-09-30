@@ -69,9 +69,16 @@
       "healthcheck": {
         "test": [
           "CMD",
-          "python",
-          "-c",
-          "import urllib.request;urllib.request.urlopen('http://127.0.0.1:9000/healthz',timeout=2)"
+          "/bin/busybox",
+          "wget",
+          "-q",
+          "-Y",
+          "off",
+          "-T",
+          "2",
+          "-O",
+          "/dev/null",
+          "http://127.0.0.1:9000/healthz"
         ],
         "interval": "10s",
         "timeout": "3s",

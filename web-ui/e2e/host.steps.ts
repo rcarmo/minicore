@@ -573,3 +573,40 @@ Then(
     expect(capture).not.toContain("stop minicore-observer.service || true");
   },
 );
+
+Then(
+  "management probes its HTTP listener with the bundled bounded native client",
+  async ({ host }) => {
+    const management = (await compose(host)).services.management;
+    expect(management.healthcheck.test).toEqual([
+      "CMD",
+      "/bin/busybox",
+      "wget",
+      "-q",
+      "-Y",
+      "off",
+      "-T",
+      "2",
+      "-O",
+      "/dev/null",
+      "http://127.0.0.1:9000/healthz",
+    ]);
+  },
+);
+Then(
+  "the readiness deadline and container isolation remain unchanged",
+  async ({ host }) => {
+    const management = (await compose(host)).services.management;
+    expect(management.healthcheck).toMatchObject({
+      interval: "10s",
+      timeout: "3s",
+      retries: 3,
+      start_period: "5s",
+    });
+    expect(management.cpus).toBe(1);
+    expect(management.mem_limit).toBe("256m");
+    expect(management.user).toBe("10001:10001");
+    expect(management.cap_drop).toEqual(["ALL"]);
+    expect(management.read_only).toBe(true);
+  },
+);

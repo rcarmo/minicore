@@ -21,6 +21,12 @@ Provisioning needs sudo for UID/GID 10001 files. Management is read-only, non-ro
 
 UI: `http://127.0.0.1:19000`; MCP: `/mcp`. A full lab runs nine services. `make status` reports container state. `make live-routes` and verified God reset check routing. `make observe` refreshes host presence once.
 
+## Management readiness
+
+Docker probes `/healthz` using the image's bundled BusyBox `wget`, with proxy use disabled, a two-second network timeout and a three-second Docker deadline. It checks the actual listener every ten seconds; HTTP errors, connection failures and stalled responses fail the probe. No Python interpreter is started for each check.
+
+Run `make live-health` to check healthy, failed, absent and stalled listeners in disposable network-isolated containers. These tests use the generated probe command. `/healthz` reports management responsiveness; use `make live-routes` or verified God reset to check the simulated network.
+
 ## Authentication
 
 The default `private` profile allows anonymous Operator access on loopback. God uses a separate configured God credential. To require credentials for all access:

@@ -78,7 +78,7 @@ Implemented scenarios execute via `make acceptance`: Behave for Python contracts
 | [Volatile network events panel](../../features/visualization/current_network_events.feature) | implemented | browser | 8 |
 | [Distinguish declared domains and live exact-prefix evidence](../../features/visualization/current_routing_layers.feature) | implemented | python | 17 |
 | [Bounded topology and node-log invalidation streams](../../features/visualization/current_streams.feature) | implemented | python | 6 |
-| [Current network workbench interactions](../../features/visualization/current_workbench.feature) | implemented | browser | 41 |
+| [Current network workbench interactions](../../features/visualization/current_workbench.feature) | implemented | browser | 42 |
 
 ## Present bounded live node observations without inferring routing health
 Source: [features/diagnostics/current_live_inspector.feature](../../features/diagnostics/current_live_inspector.feature) · runner: python
@@ -555,3 +555,4 @@ Source: [features/visualization/current_workbench.feature](../../features/visual
 - L115: One compact toolbar groups navigation and fault controls (1 case)
 - L118: Older logs can interrupt an in-flight follow refresh (1 case)
 - L121: A restored generation leaves the God toolbar usable (1 case)
+- L124: The diagram fills the workspace without a false splitter (1 case)

@@ -120,3 +120,6 @@ Feature: Current network workbench interactions
 
   Scenario: A restored generation leaves the God toolbar usable
     Then a successful reset advances generation and enables Inspect without requiring visible status text
+
+  Scenario: The diagram fills the workspace without a false splitter
+    Then the 3D canvas reaches every workspace edge on desktop and tablet while floating inspectors remain usable

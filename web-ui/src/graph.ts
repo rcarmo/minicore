@@ -374,10 +374,15 @@ export class NetworkScene {
   }
   private resize() {
     const r = this.canvas.getBoundingClientRect();
-    this.renderer.setSize(Math.max(1, r.width), Math.max(1, r.height), false);
-    this.camera.aspect = Math.max(1, r.width) / Math.max(1, r.height);
-    this.camera.zoom = Math.min(1, this.camera.aspect / 2.4);
-    this.camera.updateProjectionMatrix();
+    const w = Math.max(1, r.width),
+      h = Math.max(1, r.height);
+    this.renderer.setSize(w, h, false);
+    // Leave room for panels in the default framing, not in the canvas layout.
+    const inset = w > 1050 ? 330 : w > 600 ? 270 : 0;
+    const frameWidth = Math.max(1, w - inset - 24);
+    this.camera.zoom = Math.min(0.46, 400 / h, frameWidth / (h * 2.4));
+    const centreY = Math.min(h * 0.31, 250);
+    this.camera.setViewOffset(w, h, inset / 2, h / 2 - centreY, w, h);
   }
   private updateLabels() {
     if (!this.snapshot) return;

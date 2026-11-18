@@ -14,7 +14,7 @@ The browser provides:
 - periodic HTTP snapshots plus SSE invalidation;
 - Summary, Interfaces, Routing, Logs and Configuration views in the node inspector.
 
-The main graph always remains 3D. Diagnostic detail stays in 2D inspectors and panels.
+The 3D canvas fills the workspace between the header and footer. Inspectors float above it; moving or minimising a panel does not resize the canvas. The default camera framing leaves room for the panels. Logs remain in the node inspector, and diagnostic graphs stay in 2D panels.
 
 ## Responsibility boundary
 

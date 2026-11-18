@@ -26,19 +26,23 @@ body,
   height: 100%;
   margin: 0;
 }
+html,
+body {
+  overflow: hidden;
+}
 body {
   background: var(--bg);
   color: var(--text);
 }
 main {
-  height: 100%;
+  height: 100dvh;
+  overflow: clip;
   display: grid;
-  grid-template-rows: auto auto 1fr auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 .workspace {
+  min-width: 0;
   min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 330px;
 }
 .graph {
   position: relative;
@@ -141,10 +145,6 @@ footer {
     display: grid;
     grid-template-columns: auto auto;
     gap: 3px 10px;
-  }
-  .workspace {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(300px, 60vh) auto;
   }
   aside {
     border-left: 0;
@@ -416,18 +416,9 @@ select:focus-visible {
   outline: 2px solid #86def0;
   outline-offset: 3px;
 }
-.workspace {
-  display: block;
-  min-height: 0;
-  height: calc(100dvh - 114px);
-}
 .graph {
   width: 100%;
   height: 100%;
-  min-height: 430px;
-  border: 1px solid #263c4d;
-  border-radius: 20px;
-  overflow: hidden;
 }
 .graph-heading {
   pointer-events: none;
@@ -647,8 +638,6 @@ select:focus-visible {
   border-radius: 10px;
 }
 .routing-controls {
-  position: sticky;
-  bottom: -14px;
   background: #152436;
   padding: 10px;
   border-radius: 12px;
@@ -718,9 +707,6 @@ select:focus-visible {
   }
 }
 @media (max-width: 600px) {
-  .workspace {
-    height: calc(100dvh - 114px);
-  }
   .topology-2d:not(.compact-topology) {
     width: calc(100% - 24px);
     top: 78px;
@@ -793,34 +779,10 @@ select:focus-visible {
   stroke: #edb56666;
   outline: none;
 }
-/* The main view is always 3D. Reserve clear space for the default panels. */
+/* The 3D canvas is the workspace; evidence panels float above it. */
 .graph-scene {
   position: absolute;
-  left: 12px;
-  top: 54px;
-  width: calc(100% - 342px);
-  height: 34vh;
-  min-height: 240px;
-  max-height: 400px;
-}
-.graph-scene canvas {
-  width: 100%;
-  height: 100%;
-  border-radius: 14px;
-}
-@media (max-width: 1050px) {
-  .graph-scene {
-    width: calc(100% - 282px);
-    height: 34vh;
-    min-height: 220px;
-  }
-}
-@media (max-width: 600px) {
-  .graph-scene {
-    width: calc(100% - 24px);
-    height: 29vh;
-    min-height: 180px;
-  }
+  inset: 0;
 }
 .live-heading {
   display: flex;

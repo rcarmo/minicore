@@ -1612,3 +1612,114 @@ Then(
     await page.unrouteAll({ behavior: "wait" });
   },
 );
+
+Then(
+  "the 3D canvas reaches every workspace edge on desktop and tablet while floating inspectors remain usable",
+  async ({ page }) => {
+    await page.goto("/#p1");
+    const canvas = page.getByLabel("Interactive network topology", {
+      exact: true,
+    });
+    const inspector = page.getByRole("region", {
+      name: "Node inspector",
+      exact: true,
+    });
+    for (const viewport of [
+      { width: 1444, height: 900 },
+      { width: 820, height: 1180 },
+      { width: 1180, height: 820 },
+      { width: 390, height: 844 },
+      { width: 844, height: 390 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await expect(page.locator(".graph-label")).toHaveCount(8);
+      await expect
+        .poll(
+          async () => {
+            const workspace = await page.locator(".workspace").boundingBox();
+            const diagram = await canvas.boundingBox();
+            if (!workspace || !diagram) return Infinity;
+            return Math.max(
+              Math.abs(workspace.x - diagram.x),
+              Math.abs(workspace.y - diagram.y),
+              Math.abs(workspace.width - diagram.width),
+              Math.abs(workspace.height - diagram.height),
+            );
+          },
+          {
+            message: `Canvas must fill workspace at ${viewport.width}x${viewport.height}`,
+          },
+        )
+        .toBeLessThanOrEqual(2);
+      const pageBounds = await page.evaluate(() => ({
+        width: document.documentElement.scrollWidth,
+        height: document.documentElement.scrollHeight,
+        viewportWidth: innerWidth,
+        viewportHeight: innerHeight,
+      }));
+      expect(pageBounds.width).toBeLessThanOrEqual(pageBounds.viewportWidth);
+      expect(pageBounds.height).toBeLessThanOrEqual(pageBounds.viewportHeight);
+      await expect(page.getByRole("separator")).toHaveCount(0);
+      await expect(
+        inspector.getByRole("button", { name: "Move Node inspector" }),
+      ).toBeVisible();
+      await inspector
+        .getByRole("button", { name: "Minimize Node inspector" })
+        .click();
+      await expect(inspector.locator(".floating-body")).toBeHidden();
+      const bodySize = await canvas.boundingBox();
+      await inspector
+        .getByRole("button", { name: "Restore Node inspector" })
+        .click();
+      await expect(inspector.locator(".floating-body")).toBeVisible();
+      expect(await canvas.boundingBox()).toEqual(bodySize);
+    }
+    await page.setViewportSize({ width: 1444, height: 900 });
+    const handle = inspector.getByRole("button", {
+      name: "Move Node inspector",
+    });
+    const before = (await inspector.boundingBox())!;
+    await handle.focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect
+      .poll(async () => (await inspector.boundingBox())!.x)
+      .toBeLessThan(before.x);
+    expect(
+      await inspector
+        .locator(".floating-body")
+        .evaluate((el) => getComputedStyle(el).overflowY),
+    ).toBe("auto");
+    // The former empty lower area must now accept camera input.
+    const area = (await canvas.boundingBox())!;
+    const labelBefore = (await page
+      .locator(".graph-label")
+      .first()
+      .boundingBox())!;
+    await page.mouse.move(
+      area.x + area.width * 0.3,
+      area.y + area.height * 0.8,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      area.x + area.width * 0.4,
+      area.y + area.height * 0.85,
+      { steps: 6 },
+    );
+    await page.mouse.up();
+    await expect
+      .poll(async () => {
+        const current = (await page
+          .locator(".graph-label")
+          .first()
+          .boundingBox())!;
+        return (
+          Math.abs(current.x - labelBefore.x) +
+          Math.abs(current.y - labelBefore.y)
+        );
+      })
+      .toBeGreaterThan(2);
+    await expect(
+      page.getByRole("heading", { name: "P1", exact: true }),
+    ).toBeVisible();
+  },
+);

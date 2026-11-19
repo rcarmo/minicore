@@ -228,17 +228,34 @@ aside summary {
   align-content: center;
 }
 .floating-inspector .node-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
   list-style: none;
   padding: 0;
   margin: var(--space-4) 0;
 }
 .node-list li {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
+  margin: 0;
 }
 .node-list button {
-  min-width: 64px;
+  display: grid;
+  align-content: center;
+  width: 100%;
+  height: 100%;
+  padding-inline: var(--space-4);
+  text-align: start;
+  background: transparent;
+  border-color: transparent;
+}
+.node-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.node-list button[aria-pressed="true"] {
+  background: var(--surface-selected);
+  border-color: var(--accent);
 }
 .logs-panel {
   margin-top: var(--space-8);
@@ -543,19 +560,23 @@ aside summary {
 .floating-inspector p {
   margin: var(--space-4) 0;
 }
-.floating-inspector nav {
+.inspector-tabs {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4);
+  overflow-x: auto;
+  scrollbar-width: thin;
   border-bottom: 1px solid var(--line);
-  padding-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
 }
-.floating-inspector nav button {
+.inspector-tabs button {
+  flex: 1 0 max-content;
+  min-width: var(--control-size);
+  padding-inline: 0;
   background: transparent;
   border-color: transparent;
-  min-width: var(--control-size);
+  white-space: nowrap;
+  outline-offset: -2px;
 }
-.floating-inspector nav button[aria-pressed="true"] {
+.inspector-tabs button[aria-pressed="true"] {
   background: var(--surface-selected);
   border-bottom-color: var(--accent);
 }

@@ -1,0 +1,12 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Minicore: provision local lab",
+			"type": "shell",
+			"command": "export PATH=\"$HOME/.bun/bin:$PATH\"; sudo apt-get update && sudo apt-get install -y libnspr4 libnss3 libasound2t64 && sudo chown 10001:$(id -g) secrets/http/mcp-tokens.json && sudo chmod 640 secrets/http/mcp-tokens.json && make ssh-provision && make lab-up up watch-logs",
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}

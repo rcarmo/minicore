@@ -310,7 +310,7 @@ function App() {
 
             {selected ? (
               <>
-                <nav aria-label="Node evidence sections">
+                <nav class="inspector-tabs" aria-label="Node evidence sections">
                   {[
                     "Summary",
                     "Interfaces",
@@ -319,10 +319,12 @@ function App() {
                     "Configuration",
                   ].map((name) => (
                     <button
+                      key={name}
+                      aria-label={name}
                       aria-pressed={tab === name}
                       onClick={() => setTab(name)}
                     >
-                      {name}
+                      {name === "Configuration" ? "Config" : name}
                     </button>
                   ))}
                 </nav>
@@ -377,18 +379,20 @@ function App() {
                 {snapshot?.nodes.map((n) => (
                   <li key={n.id}>
                     <button
+                      aria-label={n.label}
+                      aria-describedby={`node-picker-${n.id}`}
                       onClick={() => select(n.id)}
                       aria-pressed={n.id === selectedId}
                     >
-                      {n.label}
-                    </button>{" "}
-                    <small>
-                      {n.role} /{" "}
-                      {n.container_state === "unknown"
-                        ? "waiting for collection"
-                        : n.container_state}
-                      {activityNodes.includes(n.id) ? " · Agent access" : ""}
-                    </small>
+                      <strong>{n.label}</strong>
+                      <small id={`node-picker-${n.id}`}>
+                        {n.role} /{" "}
+                        {n.container_state === "unknown"
+                          ? "waiting for collection"
+                          : n.container_state}
+                        {activityNodes.includes(n.id) ? " · Agent access" : ""}
+                      </small>
+                    </button>
                   </li>
                 ))}
               </ul>

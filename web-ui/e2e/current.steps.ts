@@ -1602,6 +1602,60 @@ Then(
 );
 
 Then(
+  "the node directory fits two choices per row and opens the full set of evidence tabs in one row",
+  async ({ browser, baseURL }) => {
+    const touch = await browser!.newPage({
+      hasTouch: true,
+      viewport: { width: 1252, height: 544 },
+    });
+    try {
+      await touch.goto(new URL("/", baseURL).href);
+      const inspector = touch.getByRole("complementary", {
+        name: "Node inspector",
+      });
+      const nodes = inspector.getByRole("list").getByRole("button");
+      await expect(nodes).toHaveCount(8);
+      const first = (await nodes.nth(0).boundingBox())!;
+      const second = (await nodes.nth(1).boundingBox())!;
+      const third = (await nodes.nth(2).boundingBox())!;
+      expect(second.y).toBe(first.y);
+      expect(second.x).toBeGreaterThan(first.x);
+      expect(third.x).toBe(first.x);
+      expect(first.height).toBeGreaterThanOrEqual(44);
+      expect(third.y - first.y).toBeLessThanOrEqual(48);
+      await inspector.getByRole("button", { name: "P1", exact: true }).tap();
+      await expect(
+        inspector.getByRole("heading", { name: "P1" }),
+      ).toBeVisible();
+      const tabs = inspector.getByRole("navigation", {
+        name: "Node evidence sections",
+      });
+      const buttons = tabs.getByRole("button");
+      await expect(buttons).toHaveCount(5);
+      const positions = await buttons.evaluateAll((elements) =>
+        elements.map((el) => {
+          const { y, height, width } = el.getBoundingClientRect();
+          return { y, height, width };
+        }),
+      );
+      expect(new Set(positions.map(({ y }) => y)).size).toBe(1);
+      expect(
+        positions.every(({ height, width }) => height >= 44 && width >= 44),
+      ).toBe(true);
+      expect(await tabs.evaluate((el) => el.scrollWidth)).toBeLessThanOrEqual(
+        (await tabs.boundingBox())!.width,
+      );
+      const config = tabs.getByRole("button", { name: "Configuration" });
+      await config.focus();
+      await touch.keyboard.press("Enter");
+      await expect(config).toHaveAttribute("aria-pressed", "true");
+    } finally {
+      await touch.close();
+    }
+  },
+);
+
+Then(
   "log paging stays actionable during refresh and cancels the live request",
   async ({ page }) => {
     let calls = 0;

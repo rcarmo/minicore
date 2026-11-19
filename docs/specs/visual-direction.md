@@ -35,6 +35,9 @@ Use 14/20 px body text and 12/16 px captions. Keep the node name and its
 regular-weight role metadata on one line. Evidence tables, log rows and event
 rows use simple dividers instead of nested cards. Event scope and kind controls
 share a row when space permits and wrap on narrower panels.
+The node directory uses two columns with the name and status inside each
+target. The evidence tabs stay in a single row and can scroll on narrow
+panels without shrinking touch targets.
 
 ## State language
 

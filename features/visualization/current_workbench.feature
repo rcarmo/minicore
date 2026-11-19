@@ -132,3 +132,6 @@ Feature: Current network workbench interactions
   Scenario: Inspector identity and event evidence use compact typography and spacing
     Then a core router name and role share one line without heavy metadata
     And the event scope and kind controls share a row when there is room
+
+  Scenario: Compact node directory and evidence tabs keep touch access
+    Then the node directory fits two choices per row and opens the full set of evidence tabs in one row

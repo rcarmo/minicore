@@ -190,18 +190,18 @@ export function NodeLogs({
         <button disabled={!page?.data.next_cursor} onClick={older}>
           Older
         </button>
-        <label>
-          Severity{" "}
-          <select
-            value={severity}
-            onChange={(e) => setSeverity(e.currentTarget.value)}
-          >
-            <option value="all">All</option>
-            {["error", "warning", "info", "unknown"].map((s) => (
-              <option value={s}>{s}</option>
-            ))}
-          </select>
-        </label>
+        <select
+          aria-label="Severity"
+          value={severity}
+          onChange={(e) => setSeverity(e.currentTarget.value)}
+        >
+          <option value="all">All levels</option>
+          {["error", "warning", "info", "unknown"].map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
       </div>
       {pending && (
         <p class="log-new">

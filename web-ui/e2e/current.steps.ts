@@ -1656,6 +1656,39 @@ Then(
 );
 
 Then(
+  "log paging and severity filtering fit one compact row on a touch desktop",
+  async ({ browser, baseURL }) => {
+    const touch = await browser!.newPage({
+      hasTouch: true,
+      viewport: { width: 1252, height: 544 },
+    });
+    try {
+      await touch.goto(new URL("/#p1", baseURL).href);
+      await touch.getByRole("button", { name: "Logs", exact: true }).tap();
+      const logs = touch.getByRole("region", { name: "Logs for p1" });
+      await logs.getByRole("button", { name: "Pause", exact: true }).tap();
+      const controls = [
+        logs.getByRole("button", { name: "Follow latest" }),
+        logs.getByRole("button", { name: "Latest", exact: true }),
+        logs.getByRole("button", { name: "Older" }),
+        logs.getByRole("combobox", { name: "Severity" }),
+      ];
+      const boxes = await Promise.all(controls.map((control) => control.boundingBox()));
+      for (const box of boxes) {
+        expect(box!.height).toBeGreaterThanOrEqual(24);
+        expect(box!.height).toBeLessThanOrEqual(28);
+        expect(box!.y).toBe(boxes[0]!.y);
+      }
+      await controls[3].focus();
+      await touch.keyboard.press("ArrowDown");
+      await expect(controls[3]).toHaveValue("error");
+    } finally {
+      await touch.close();
+    }
+  },
+);
+
+Then(
   "log paging stays actionable during refresh and cancels the live request",
   async ({ page }) => {
     let calls = 0;

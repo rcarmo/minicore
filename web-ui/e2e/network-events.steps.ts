@@ -124,6 +124,73 @@ async function observerFixture(page: import("@playwright/test").Page) {
   });
 }
 Then(
+  "interface charts retain individual rate samples and distinguish missing data from zero",
+  async () => {
+    const result = await run([
+      "bun",
+      "test",
+      "src/network-events-model.test.ts",
+      "--test-name-pattern",
+      "interface traffic history",
+    ]);
+    expect(result.code, result.text).toBe(0);
+    expect(result.text).toContain("(pass) interface traffic history");
+  },
+);
+Then(
+  "each interface row has its own TX and RX chart beside the current rates",
+  async ({ page }) => {
+    const fixture = await observerFixture(page);
+    await page.route("**/api/v1/observer?*", (route) => {
+      const { searchParams } = new URL(route.request().url());
+      const kind = searchParams.get("kind");
+      const payload = (index: number) => ({
+        interfaces: ["to-p2", "to-pe1"].map((name, port) => ({
+          interface: name,
+          state: "UP",
+          tx_packets: Math.min(index, 2) * (port + 1) * 5,
+          rx_packets: Math.min(index, 2) * 2,
+          tx_bytes: Math.min(index, 2) * (port + 1) * 500,
+          rx_bytes: Math.min(index, 2) * 200,
+          tx_errors: 0,
+          rx_errors: 0,
+          tx_drops: 0,
+          rx_drops: 0,
+        })),
+      });
+      const result = fixture(
+        `node:p1:${kind}`,
+        kind === "interfaces" ? payload(0) : { peers: [], routes: [] },
+      );
+      if (kind === "interfaces") {
+        const [first] = result.records;
+        result.records = [0, 1, 2, 3].map((index) => ({
+          ...first!,
+          acquired_monotonic: 123 + index,
+          remaining_ms: 55000 + index * 1000,
+          data: payload(index),
+        }));
+      }
+      return route.fulfill({ json: result });
+    });
+    await page.goto("/#p1");
+    await page.getByRole("button", { name: "Network events", exact: true }).click();
+    const panel = page.getByRole("region", { name: "Network events panel" });
+    await panel.getByRole("button", { name: "Interfaces", exact: true }).click();
+    const table = panel.getByRole("table", { name: "Interface rates and traffic history" });
+    const row = table.getByRole("row").filter({ hasText: "p1 / to-p2" });
+    await expect(row.getByRole("cell", { name: "0.0", exact: true })).toHaveCount(4);
+    const chart = row.getByRole("img", { name: /to-p2.*60 seconds.*TX peak 5/ });
+    await expect(chart).toBeVisible();
+    await expect(chart.locator(".traffic-tx")).not.toHaveAttribute("d", "");
+    await expect(chart.locator(".traffic-rx")).not.toHaveAttribute("d", "");
+    await expect(table.getByRole("row").filter({ hasText: "p1 / to-pe1" })
+      .getByRole("img", { name: /to-pe1.*TX peak 10/ })).toBeVisible();
+    await expect(panel.getByLabel("Recent observer activity sparkline")).toHaveCount(0);
+  },
+);
+
+Then(
   "the network events panel scopes rows highlights a node and never mutates the lab",
   async ({ page }) => {
     const fixture = await observerFixture(page);

@@ -445,6 +445,64 @@ const recordBase = {
     routes: [{ prefix: "10.200.8.0/29", source: "rib", nexthops: [] }],
   },
 };
+test("interface traffic history retains individual samples, zeros and gaps", () => {
+  const scope = { type: "node", id: "p1" } as const;
+  const makeSample = (at: number, packets: number) => ({
+    ...recordBase,
+    scope: "node:p1:interfaces",
+    acquired_monotonic: at / 1000,
+    remaining_ms: 60000 - (10900 - at),
+    data: {
+      interfaces: [
+        {
+          interface: "eth1",
+          state: "UP",
+          tx_packets: packets,
+          rx_packets: 0,
+          tx_bytes: packets * 10,
+          rx_bytes: 0,
+          tx_errors: 0,
+          rx_errors: 0,
+          tx_drops: 0,
+          rx_drops: 0,
+        },
+      ],
+    },
+  });
+  const first = [
+    makeSample(4700, 0),
+    makeSample(5700, 10),
+    makeSample(6700, 40),
+    makeSample(7700, 40),
+  ];
+  const model = (samples: ReturnType<typeof makeSample>[], now: number) =>
+    buildNetworkEventsModel({
+      snapshot,
+      scope,
+      kind: "interfaces",
+      current: validateObserverEnvelope(
+        envelope("interfaces", scope, samples),
+        snapshot,
+        scope,
+        "interfaces",
+        10900,
+        10900,
+      ),
+      previous: null,
+      now,
+    });
+  const initial = model(first, 10100);
+  expect(initial.rates[0]?.txPackets).toBe(0);
+  expect(initial.rates[0]?.history.map((point) => point.txPackets)).toEqual([
+    null, 10, 30, 0,
+  ]);
+  const refreshed = model([...first, makeSample(11800, 450)], 11800);
+  expect(refreshed.rates[0]?.txPackets).toBeCloseTo(100);
+  expect(refreshed.rates[0]?.history.map((point) => point.txPackets)).toEqual([
+    null, 10, 30, 0, null,
+  ]);
+});
+
 test("regression: seconds rates and window history do not depend on prior fetch", () => {
   const topo = snapshot;
   const scope = { type: "node", id: "p1" } as const;
@@ -490,7 +548,8 @@ test("regression: seconds rates and window history do not depend on prior fetch"
     previous: null,
     now: 1,
   });
-  expect(result.sparkline.points.some((p) => p.primary === 20)).toBe(true); // 10 TX + 10 RX packets/s
+  expect(result.rates[0]?.txPackets).toBe(10);
+  expect(result.rates[0]?.rxPackets).toBe(10);
   const route1 = {
     ...recordBase,
     sampled_at: "1970-01-01T00:01:40Z",

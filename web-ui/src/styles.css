@@ -261,12 +261,19 @@ aside summary {
   margin-top: var(--space-8);
 }
 .log-controls {
+  --control-size: 28px;
   display: flex;
   gap: var(--space-4);
   flex-wrap: wrap;
   align-items: center;
 }
-.log-controls label,
+.log-controls :is(button, select) {
+  min-width: var(--control-size);
+  padding-inline: 6px;
+}
+.log-controls button {
+  white-space: nowrap;
+}
 .log-meta,
 .log-entry > div {
   font-size: var(--caption-size);

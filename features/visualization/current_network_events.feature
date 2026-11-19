@@ -23,3 +23,7 @@ Feature: Volatile network events panel
 
   Scenario: A failed endpoint does not erase the healthy endpoint's rate
     Then a partial link keeps matching healthy source rates and labels the failed source
+
+  Scenario: Show measured traffic history beside each interface
+    Then each interface row has its own TX and RX chart beside the current rates
+    And interface charts retain individual rate samples and distinguish missing data from zero

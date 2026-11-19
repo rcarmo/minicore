@@ -135,3 +135,6 @@ Feature: Current network workbench interactions
 
   Scenario: Compact node directory and evidence tabs keep touch access
     Then the node directory fits two choices per row and opens the full set of evidence tabs in one row
+
+  Scenario: Compact log controls leave more room for entries
+    Then log paging and severity filtering fit one compact row on a touch desktop

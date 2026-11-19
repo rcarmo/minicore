@@ -47,3 +47,4 @@ Entry IDs bind node, generation, container incarnation and message occurrence. D
 - Both routes use the same authenticated policy as topology. Stream admission reserves a slot before iteration starts, and closing an unread response releases it. Credentials are checked again after awaited collection, before emitting an event. No extra MCP tools are added.
 - Cursor binds revision, node and generation. If retention expires a cursor, the UI must return to the latest page explicitly.
 - Follow replaces the current page on invalidation or poll. Pause cancels in-flight page fetches and preserves visible rows and scroll position.
+- Follow/Pause, Latest, Older and the severity filter use 28 px controls in one row when space permits. The row can wrap on narrower panels without clipping controls or removing keyboard access.

@@ -292,7 +292,14 @@ function App() {
           onMinimize={setInspectorMinimized}
         >
           <aside aria-label="Node inspector">
-            <h2>{selected?.label ?? "Select a node"}</h2>
+            <div class="inspector-identity">
+              <h2>{selected?.label ?? "Select a node"}</h2>
+              {selected && (
+                <span class="role">
+                  {selected.role} · {selected.kind}
+                </span>
+              )}
+            </div>
             {view === "god" && snapshot && (
               <ControllerState
                 value={
@@ -303,9 +310,6 @@ function App() {
 
             {selected ? (
               <>
-                <p class="role">
-                  {selected.role.toUpperCase()} · {selected.kind}
-                </p>
                 <nav aria-label="Node evidence sections">
                   {[
                     "Summary",

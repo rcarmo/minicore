@@ -10,7 +10,7 @@ Feature: Cross-browser accessible evidence workbench
     Then a late first-prefix response cannot replace the second prefix evidence
 
   Scenario: Keep header controls grouped and reachable on tablets
-    Then the header replaces generation with God mode and keeps all controls inline with accessible touch targets
+    Then the header fits compact inline desktop actions and preserves large touch targets
 
   Scenario: Network events remain read-only across browser engines
     Then the network events panel scopes rows highlights a node and never mutates the lab

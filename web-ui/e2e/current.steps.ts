@@ -11,7 +11,7 @@ import {
   pollingFallback,
   selectionRace,
 } from "./logs.checks";
-const { Given, Then } = createBdd(test);
+const { Given, When, Then } = createBdd(test);
 Given("the isolated browser workbench is available", async ({ request }) => {
   expect((await request.get("/healthz")).status()).toBe(200);
 });
@@ -1141,17 +1141,6 @@ Then(
         .locator(".floating-body")
         .evaluate((el) => getComputedStyle(el).overflowY),
     ).toBe("auto");
-    expect(
-      await panel.evaluate((el) =>
-        parseFloat(getComputedStyle(el).borderRadius),
-      ),
-    ).toBeGreaterThanOrEqual(12);
-    const button = page.getByRole("button", { name: "BGP", exact: true });
-    expect(
-      await button.evaluate((el) =>
-        parseFloat(getComputedStyle(el).borderRadius),
-      ),
-    ).toBeGreaterThanOrEqual(10);
     const before = (await panel.boundingBox())!;
     expect(before.height).toBeLessThan(900 * 0.65);
     expect(before.width).toBeLessThan(1440 * 0.65);
@@ -1164,7 +1153,7 @@ Then(
       .poll(async () => Math.round((await panel.boundingBox())!.x))
       .toBeLessThan(Math.round(before.x));
     const grab = (await handle.boundingBox())!;
-    await page.mouse.move(grab.x + 20, grab.y + 20);
+    await page.mouse.move(grab.x + 20, grab.y + grab.height / 2);
     await page.mouse.down();
     await page.mouse.move(grab.x - 40, grab.y - 20, { steps: 5 });
     await page.mouse.up();
@@ -1389,7 +1378,7 @@ Then(
 );
 
 Then(
-  "the header replaces generation with God mode and keeps all controls inline with accessible touch targets",
+  "the header fits compact inline desktop actions and preserves large touch targets",
   async ({ page }) => {
     const topology = await (await page.request.get("/api/v1/topology")).json();
     let mutations = 0;
@@ -1445,7 +1434,8 @@ Then(
     for (const width of [1600, 820, 390]) {
       await page.setViewportSize({ width, height: 1000 });
       const row = await header.boundingBox();
-      expect(row!.height).toBeLessThanOrEqual(84);
+      const compact = width === 1600;
+      expect(row!.height).toBeLessThanOrEqual(compact ? 48 : 64);
       const controls = [
         header
           .getByRole("checkbox", { name: "God mode", exact: true })
@@ -1457,13 +1447,9 @@ Then(
       const boxes = [];
       for (const control of controls) {
         const box = (await control.boundingBox())!;
-        expect(box.height).toBeGreaterThanOrEqual(44);
-        expect(box.width).toBeGreaterThanOrEqual(44);
-        expect(
-          await control.evaluate((el) =>
-            parseFloat(getComputedStyle(el).borderRadius),
-          ),
-        ).toBeGreaterThanOrEqual(8);
+        expect(box.height).toBeGreaterThanOrEqual(compact ? 32 : 44);
+        expect(box.height).toBeLessThanOrEqual(compact ? 32 : 44);
+        expect(box.width).toBeGreaterThanOrEqual(compact ? 32 : 44);
         boxes.push(box);
       }
       expect(
@@ -1490,6 +1476,128 @@ Then(
       header.getByRole("button", { name: "Lightning — kill target" }),
     ).toHaveCount(0);
     await page.unrouteAll({ behavior: "wait" });
+  },
+);
+
+When("the workbench opens on a short desktop viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 1252, height: 333 });
+  await page.goto("/#p1");
+});
+
+Then(
+  "the inspector, routing and event windows fit without oversized chrome",
+  async ({ page }) => {
+    const inspector = page.getByRole("region", {
+      name: "Node inspector",
+      exact: true,
+    });
+    const header = (await page.locator("header").boundingBox())!;
+    const inspectorBounds = (await inspector.boundingBox())!;
+    expect(inspectorBounds.y - header.height).toBeLessThanOrEqual(12);
+    expect(inspectorBounds.width).toBeLessThanOrEqual(280);
+    expect(inspectorBounds.y + inspectorBounds.height).toBeLessThan(313);
+    await page.getByRole("button", { name: "BGP", exact: true }).click();
+    const routing = page.getByRole("region", { name: "Routing diagnostics" });
+    await page
+      .getByRole("button", { name: "Network events", exact: true })
+      .click();
+    const events = page
+      .getByRole("region", { name: "Network events", exact: true })
+      .filter({
+        has: page.getByRole("button", { name: "Move Network events" }),
+      });
+    for (const [panel, width] of [
+      [inspector, 280],
+      [routing, 680],
+      [events, 640],
+    ] as const) {
+      await expect(panel).toBeVisible();
+      expect((await panel.boundingBox())!.width).toBeLessThanOrEqual(width);
+      expect(
+        (await panel.locator(".floating-titlebar").boundingBox())!.height,
+      ).toBeLessThanOrEqual(30);
+    }
+    await events
+      .getByRole("button", { name: "Minimize Network events" })
+      .click();
+    expect((await events.boundingBox())!.width).toBeLessThanOrEqual(200);
+  },
+);
+
+Then(
+  "touch-sized toolbar controls do not enlarge window title bars",
+  async ({ browser, page }) => {
+    const touch = await browser!.newPage({
+      hasTouch: true,
+      viewport: { width: 1252, height: 333 },
+    });
+    try {
+      await touch.goto(page.url());
+      const toolbarButton = touch.getByRole("button", {
+        name: "Network events",
+        exact: true,
+      });
+      expect(
+        (await toolbarButton.boundingBox())!.height,
+      ).toBeGreaterThanOrEqual(44);
+      for (const name of ["Node inspector", "Network events"]) {
+        if (name === "Network events") await toolbarButton.tap();
+        const minimize = touch.getByRole("button", {
+          name: `Minimize ${name}`,
+        });
+        const title = minimize.locator("..");
+        expect((await title.boundingBox())!.height).toBeLessThanOrEqual(33);
+        const target = (await minimize.boundingBox())!;
+        expect(target.width).toBeGreaterThanOrEqual(32);
+        expect(target.height).toBeGreaterThanOrEqual(32);
+        await minimize.tap();
+        await expect(
+          touch.getByRole("button", { name: `Restore ${name}` }),
+        ).toBeVisible();
+      }
+    } finally {
+      await touch.close();
+    }
+  },
+);
+
+Then(
+  "a core router name and role share one line without heavy metadata",
+  async ({ page }) => {
+    await page.goto("/#p1");
+    const inspector = page.getByRole("complementary", {
+      name: "Node inspector",
+    });
+    const title = inspector.getByRole("heading", { name: "P1", exact: true });
+    const role = inspector.getByText(/^core · router$/i);
+    await expect(title).toBeVisible();
+    await expect(role).toBeVisible();
+    const nameBox = (await title.boundingBox())!;
+    const roleBox = (await role.boundingBox())!;
+    expect(roleBox.x).toBeGreaterThanOrEqual(nameBox.x + nameBox.width);
+    expect(roleBox.y).toBeLessThan(nameBox.y + nameBox.height);
+    expect(
+      await role.evaluate((el) => {
+        const style = getComputedStyle(el);
+        return [style.fontSize, style.fontWeight, style.textTransform];
+      }),
+    ).toEqual(["12px", "400", "none"]);
+  },
+);
+
+Then(
+  "the event scope and kind controls share a row when there is room",
+  async ({ page }) => {
+    await page
+      .getByRole("button", { name: "Network events", exact: true })
+      .click();
+    const scope = (await page.getByLabel("Network event scope").boundingBox())!;
+    const routing = (await page
+      .getByRole("tablist", { name: "Network event kinds" })
+      .getByRole("button", { name: "Routing" })
+      .boundingBox())!;
+    expect(routing.x).toBeGreaterThanOrEqual(scope.x + scope.width);
+    expect(Math.abs(routing.y - scope.y)).toBeLessThanOrEqual(2);
   },
 );
 

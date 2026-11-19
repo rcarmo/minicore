@@ -113,7 +113,7 @@ Feature: Current network workbench interactions
     Then the inspectors use plain status labels and keep source details collapsed
 
   Scenario: One compact toolbar groups navigation and fault controls
-    Then the header replaces generation with God mode and keeps all controls inline with accessible touch targets
+    Then the header fits compact inline desktop actions and preserves large touch targets
 
   Scenario: Older logs can interrupt an in-flight follow refresh
     Then log paging stays actionable during refresh and cancels the live request
@@ -123,3 +123,12 @@ Feature: Current network workbench interactions
 
   Scenario: The diagram fills the workspace without a false splitter
     Then the 3D canvas reaches every workspace edge on desktop and tablet while floating inspectors remain usable
+
+  Scenario: Compact diagnostic windows leave more topology visible
+    When the workbench opens on a short desktop viewport
+    Then the inspector, routing and event windows fit without oversized chrome
+    And touch-sized toolbar controls do not enlarge window title bars
+
+  Scenario: Inspector identity and event evidence use compact typography and spacing
+    Then a core router name and role share one line without heavy metadata
+    And the event scope and kind controls share a row when there is room

@@ -9,16 +9,6 @@ import {
   type ValidatedEnvelope,
 } from "./network-events-model";
 
-const buttonStyle = {
-  minHeight: "44px",
-  minWidth: "44px",
-  borderRadius: "999px",
-  border: "1px solid rgba(255,255,255,.18)",
-  background: "rgba(17,24,39,.72)",
-  color: "inherit",
-  padding: "0.5rem 0.9rem",
-};
-
 function Sparkline({
   model,
 }: {
@@ -43,11 +33,7 @@ function Sparkline({
       width={width}
       height={height}
       aria-label="Recent observer activity sparkline"
-      style={{
-        display: "block",
-        borderRadius: "10px",
-        background: "rgba(15,23,42,.7)",
-      }}
+      class="event-sparkline"
     >
       <path
         d={`M0,${height - 2} L${width},${height - 2}`}
@@ -338,29 +324,14 @@ export function NetworkEvents({
       title="Network events"
       onMinimize={setMinimized}
       heading={
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-          <button
-            style={buttonStyle}
-            aria-label="Close Network events"
-            onClick={onClose}
-          >
-            Close
-          </button>
-        </div>
+        <button aria-label="Close Network events" onClick={onClose}>
+          Close
+        </button>
       }
     >
-      <section
-        class="network-events-panel"
-        aria-label="Network events panel"
-        style={{
-          width: "min(38rem, calc(100vw - 2rem))",
-          display: "grid",
-          gap: "0.75rem",
-          color: "#e5eefb",
-        }}
-      >
-        <div style={{ display: "grid", gap: "0.5rem" }}>
-          <label style={{ display: "grid", gap: "0.25rem" }}>
+      <section class="network-events-panel" aria-label="Network events panel">
+        <div class="event-controls">
+          <label class="event-scope">
             <span>Scope</span>
             <select
               aria-label="Network event scope"
@@ -371,11 +342,6 @@ export function NetworkEvents({
                 );
                 if (selected) setScope(selected.scope);
               }}
-              style={{
-                minHeight: "44px",
-                borderRadius: "12px",
-                padding: "0.6rem",
-              }}
             >
               {options.map((option) => (
                 <option value={option.value}>{option.label}</option>
@@ -385,7 +351,7 @@ export function NetworkEvents({
           <div
             role="tablist"
             aria-label="Network event kinds"
-            style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}
+            class="event-kinds"
           >
             {(["routing", "interfaces", "igmp"] as ObserverKind[]).map(
               (tab) => {
@@ -401,7 +367,6 @@ export function NetworkEvents({
                         ? "Routing is available only for node scopes"
                         : undefined
                     }
-                    style={buttonStyle}
                     onClick={() => setKind(tab)}
                   >
                     {tab === "igmp"
@@ -413,17 +378,15 @@ export function NetworkEvents({
             )}
           </div>
           {disabledRouting && kind !== "routing" && (
-            <p style={{ margin: 0, opacity: 0.8 }}>
-              Select a router for routing events.
-            </p>
+            <p class="event-scope-hint">Select a router for routing events.</p>
           )}
         </div>
 
-        <div style={{ display: "grid", gap: "0.35rem" }}>
-          <p role="status" style={{ margin: 0 }}>
+        <div class="event-evidence">
+          <p role="status">
             {failure ? `Observer unavailable: ${failure}` : model.status}
           </p>
-          <p style={{ margin: 0, opacity: 0.82 }}>
+          <p class="event-meta">
             {healthText}
             {model.ageMs !== null
               ? ` · age ${Math.max(0, Math.round(model.ageMs / 1000))}s`
@@ -479,15 +442,14 @@ export function NetworkEvents({
           )}
         </div>
 
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+        <div class="event-follow">
           <button
-            style={buttonStyle}
             aria-pressed={!paused}
             onClick={() => setPaused((value) => !value)}
           >
             {paused ? "Follow" : "Pause"}
           </button>
-          <span style={{ alignSelf: "center", opacity: 0.82 }}>
+          <span class="event-meta">
             {paused && pending
               ? `${pending} newer event${pending === 1 ? "" : "s"}`
               : model.summary}
@@ -499,64 +461,25 @@ export function NetworkEvents({
           class="network-events-rows"
           aria-label="Network event rows"
           tabIndex={0}
-          style={{
-            maxHeight: "22rem",
-            overflow: "auto",
-            display: "grid",
-            gap: "0.5rem",
-            paddingRight: "0.25rem",
-          }}
         >
           {!model.rows.length ? (
-            <p style={{ margin: 0 }}>
-              {failure ? `Observer unavailable: ${failure}` : model.status}
-            </p>
+            <p>{failure ? `Observer unavailable: ${failure}` : model.status}</p>
           ) : (
             model.rows.map((row) => (
-              <article
-                key={row.id}
-                class="network-events-row"
-                style={{
-                  border: "1px solid rgba(148,163,184,.24)",
-                  borderRadius: "16px",
-                  padding: "0.7rem",
-                  background: "rgba(15,23,42,.62)",
-                  display: "grid",
-                  gap: "0.35rem",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: "0.5rem",
-                    alignItems: "start",
-                  }}
-                >
+              <article key={row.id} class="network-events-row">
+                <div class="event-row-heading">
                   <div>
                     <strong>{row.event}</strong>
-                    <div style={{ opacity: 0.82 }}>{row.detail}</div>
+                    <div class="event-meta">{row.detail}</div>
                   </div>
-                  <time
-                    dateTime={row.at}
-                    style={{ opacity: 0.7, whiteSpace: "nowrap" }}
-                  >
+                  <time dateTime={row.at}>
                     {new Date(row.at).toLocaleTimeString()}
                   </time>
                 </div>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: "0.5rem",
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                  }}
-                >
+                <div class="event-row-actions">
                   <small>{row.source}</small>
                   {row.nodeId && (
                     <button
-                      style={buttonStyle}
                       aria-label={`Inspect ${row.nodeId}${row.linkId ? ` on ${row.linkId}` : ""}`}
                       onClick={() => onInspect(row.nodeId!, row.linkId)}
                     >

@@ -19,6 +19,23 @@ Use a restrained network workbench:
 
 Decorative depth must never make links harder to trace or suggest topology that is not observed.
 
+## Workbench density
+
+Follow Fluent 2's [spacing scale](https://fluent2.microsoft.design/layout) and
+[web typography ramp](https://fluent2.microsoft.design/typography) for the
+workbench chrome, while retaining Minicore's network state palette. On desktop
+use a single 48 px toolbar with 32 px controls, 8 px panel padding, and compact
+title bars. Narrow screens and coarse pointers retain 44 px main toolbar
+targets. Window title bar controls are 24 px on desktop and 32 px for touch
+and narrow screens, so window chrome stays compact. Diagnostic windows scroll
+internally; minimizing one leaves only its title bar and does not resize the
+topology.
+
+Use 14/20 px body text and 12/16 px captions. Keep the node name and its
+regular-weight role metadata on one line. Evidence tables, log rows and event
+rows use simple dividers instead of nested cards. Event scope and kind controls
+share a row when space permits and wrap on narrower panels.
+
 ## State language
 
 Colour communicates only defined operational state and always has a second cue:

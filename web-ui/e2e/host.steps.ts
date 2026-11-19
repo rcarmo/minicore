@@ -574,6 +574,67 @@ Then(
   },
 );
 
+When(
+  "the counter observer starts on a host whose installer requires named owners",
+  async ({ host }) => {
+    const bin = join(host.dir, "bin");
+    const calls = join(host.dir, "observer-calls");
+    await mkdir(bin);
+    await cp(
+      join(root, "scripts/observer-service.sh"),
+      join(host.dir, "scripts/observer-service.sh"),
+    );
+    for (const [command, script] of [
+      [
+        "sudo",
+        `#!/bin/sh
+case "$1" in
+  install) echo 'install: invalid group: 10001' >&2; exit 1 ;;
+  chown) printf '%s\\n' "$*" >> "$CALLS" ;;
+  mkdir|chmod) "$@" ;;
+  *) exit 2 ;;
+esac
+`,
+      ],
+      [
+        "systemctl",
+        `#!/bin/sh
+if [ "$1" = is-active ]; then exit 3; fi
+printf '%s\\n' "$*" >> "$CALLS"
+`,
+      ],
+    ]) {
+      await writeFile(join(bin, command), script, { mode: 0o755 });
+    }
+    host.result = await child(
+      ["sh", join(host.dir, "scripts/observer-service.sh"), "start"],
+      {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        HOME: host.dir,
+        CALLS: calls,
+      },
+    );
+  },
+);
+Then(
+  "it prepares a private group-shared socket directory and starts the user service",
+  async ({ host }) => {
+    expect(host.result.code, host.result.out).toBe(0);
+    const socketDir = join(host.dir, "runtime/observer-socket");
+    expect((await stat(socketDir)).mode & 0o7777).toBe(0o2770);
+    expect(
+      (await readFile(join(host.dir, "observer-calls"), "utf8"))
+        .trim()
+        .split("\n"),
+    ).toEqual([
+      `chown ${process.getuid!()}:10001 ${socketDir}`,
+      "--user daemon-reload",
+      "--user start minicore-observer.service",
+    ]);
+  },
+);
+
 Then(
   "management probes its HTTP listener with the bundled bounded native client",
   async ({ host }) => {

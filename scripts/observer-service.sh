@@ -7,7 +7,10 @@ case "${1:-}" in
     echo 'Stop IGMP capture before starting counters' >&2
     exit 1
   fi
-  sudo install -d -o "$(id -u)" -g 10001 -m 2770 "$root/runtime/observer-socket"
+  socket_dir="$root/runtime/observer-socket"
+  sudo mkdir -p -- "$socket_dir"
+  sudo chown "$(id -u):10001" "$socket_dir"
+  sudo chmod 2770 "$socket_dir"
   mkdir -p "$HOME/.config/systemd/user"
   cat > "$HOME/.config/systemd/user/minicore-observer.service" <<UNIT
 [Unit]

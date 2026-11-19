@@ -89,6 +89,10 @@ Feature: Generate and manage the declared containers from the host only
   Scenario: Counter-only and IGMP services cannot replace each other's active socket
     Then observer service launchers reject a concurrently active peer service
 
+  Scenario: Start the observer without registering its container group on the host
+    When the counter observer starts on a host whose installer requires named owners
+    Then it prepares a private group-shared socket directory and starts the user service
+
   Scenario: Readiness checks do not start a Python interpreter
     When the canonical deployment is generated twice
     Then management probes its HTTP listener with the bundled bounded native client

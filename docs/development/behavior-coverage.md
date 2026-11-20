@@ -26,7 +26,7 @@ Implemented scenarios execute via `make acceptance`: Behave for Python contracts
 | [Share volatile source collection through a bounded Unix socket](../../features/observer/current_observer_service.feature) | implemented | python | 12 |
 | [Generate and manage the declared containers from the host only](../../features/operations/current_host_tools.feature) | implemented | host | 30 |
 | [Collect bounded container evidence without service-side Docker access](../../features/operations/current_log_collector.feature) | implemented | host | 7 |
-| [Validate isolated network event models and module exports](../../features/operations/current_network_event_models.feature) | implemented | host | 5 |
+| [Validate isolated network event models and module exports](../../features/operations/current_network_event_models.feature) | implemented | host | 6 |
 | [Inject and reset each real lab fault through God MCP](../../features/operations/live_faults.feature) | external | live lab | 1 |
 | [Prove routed data-path isolation independently of baseline reachability](../../features/operations/live_isolation.feature) | external | live lab | 3 |
 | [Detect management readiness with a bounded native HTTP probe](../../features/operations/live_management_health.feature) | external | live lab | 4 |
@@ -75,7 +75,7 @@ Implemented scenarios execute via `make acceptance`: Behave for Python contracts
 | [Read the declared configuration file tree for a node](../../features/visualization/configuration_browser.feature) | implemented | python | 16 |
 | [Publish bounded ordinary agent request activity](../../features/visualization/current_activity.feature) | implemented | python | 14 |
 | [Bounded and truthful node log pages](../../features/visualization/current_log_pages.feature) | implemented | python | 26 |
-| [Volatile network events panel](../../features/visualization/current_network_events.feature) | implemented | browser | 9 |
+| [Volatile network events panel](../../features/visualization/current_network_events.feature) | implemented | browser | 10 |
 | [Distinguish declared domains and live exact-prefix evidence](../../features/visualization/current_routing_layers.feature) | implemented | python | 17 |
 | [Bounded topology and node-log invalidation streams](../../features/visualization/current_streams.feature) | implemented | python | 6 |
 | [Current network workbench interactions](../../features/visualization/current_workbench.feature) | implemented | browser | 46 |
@@ -299,6 +299,7 @@ Source: [features/operations/current_network_event_models.feature](../../feature
 - L11: Rates use source seconds and preserve changes across the whole current window (1 case)
 - L14: Malformed lifetime metadata cannot keep an observer row alive (1 case)
 - L17: Incomplete observations cannot generate a withdrawal or a traffic rate (1 case)
+- L20: Routing snapshots are not counted as routing changes (1 case)
 
 ## Wait for fresh log evidence after a restart invalidation
 Source: [features/operations/log_smoke.feature](../../features/operations/log_smoke.feature) · runner: python
@@ -494,6 +495,7 @@ Source: [features/visualization/current_network_events.feature](../../features/v
 - L21: Show which link endpoint is unavailable (1 case)
 - L24: A failed endpoint does not erase the healthy endpoint's rate (1 case)
 - L27: Show measured traffic history beside each interface (1 case)
+- L31: Routing activity stays flat while unchanged snapshots expire (1 case)
 
 ## Distinguish declared domains and live exact-prefix evidence
 Source: [features/visualization/current_routing_layers.feature](../../features/visualization/current_routing_layers.feature) · runner: python

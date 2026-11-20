@@ -11,6 +11,7 @@ import {
   stat,
   writeFile,
   access,
+  symlink,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -60,8 +61,10 @@ export const test = base.extend<{ host: Host }>({
       "lab.ts",
       "init-secrets.ts",
       "log-collector.ts",
+      "log-watcher.ts",
     ])
       await cp(join(root, "scripts", f), join(dir, "scripts", f));
+    await cp(join(root, "Makefile"), join(dir, "Makefile"));
     await cp(
       join(root, "inventory/topology.json"),
       join(dir, "inventory/topology.json"),
@@ -95,6 +98,108 @@ Given(
   "a temporary copy of the host tools and canonical inventory",
   async ({ host }) => {
     expect(host.inventory.nodes.length).toBe(8);
+  },
+);
+Given(
+  "recording startup executables with {string} failure and Bun outside the shell path",
+  async ({ host }, failure: string) => {
+    await mkdir(join(host.dir, "bin"));
+    await mkdir(join(host.dir, ".bun/bin"), { recursive: true });
+    const bun = await child(["bun", "-e", "console.log(process.execPath)"]);
+    expect(bun.code, bun.out).toBe(0);
+    await symlink(bun.out.trim(), join(host.dir, ".bun/bin/bun"));
+    for (const command of ["docker", "systemctl"]) {
+      const file = join(host.dir, "bin", command);
+      await writeFile(
+        file,
+        `#!/usr/bin/env bun
+const args = process.argv.slice(2);
+const log = ${JSON.stringify(join(host.dir, "startup-calls.jsonl"))};
+const previous = await Bun.file(log).exists() ? await Bun.file(log).text() : "";
+await Bun.write(log, previous + JSON.stringify({command: ${JSON.stringify(command)}, args}) + "\\n");
+if (${JSON.stringify(failure)} === "lab" && ${JSON.stringify(command)} === "docker") process.exit(1);
+if (${JSON.stringify(failure)} === "collector" && ${JSON.stringify(command)} === "systemctl" && args.includes("start")) process.exit(1);
+`,
+      );
+      await chmod(file, 0o755);
+    }
+  },
+);
+When("the local simulator startup target runs", async ({ host }) => {
+  host.result = await child(["make", "-C", host.dir, "start"], {
+    ...process.env,
+    HOME: host.dir,
+    PATH: join(host.dir, "bin") + ":/usr/bin:/bin",
+  });
+});
+When(
+  "the local simulator {string} target runs",
+  async ({ host }, task: string) => {
+    host.result = await child(["make", "-C", host.dir, task], {
+      ...process.env,
+      HOME: host.dir,
+      PATH: join(host.dir, "bin") + ":/usr/bin:/bin",
+    });
+  },
+);
+async function startupCalls(host: Host) {
+  return (await readFile(join(host.dir, "startup-calls.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+}
+const startCalls = [
+  {
+    command: "docker",
+    args: [
+      "compose",
+      "-f",
+      "compose/compose.json",
+      "--profile",
+      "lab",
+      "up",
+      "-d",
+      "--wait",
+    ],
+  },
+  { command: "systemctl", args: ["--user", "daemon-reload"] },
+  {
+    command: "systemctl",
+    args: ["--user", "start", "minicore-logs.service"],
+  },
+];
+Then(
+  "collection stops before the lab and {string} preserves persistent state",
+  async ({ host }, task: string) => {
+    expect(host.result.code, host.result.out).toBe(0);
+    expect(await startupCalls(host)).toEqual([
+      {
+        command: "systemctl",
+        args: ["--user", "stop", "minicore-logs.service"],
+      },
+      {
+        command: "docker",
+        args: [
+          "compose",
+          "-f",
+          "compose/compose.json",
+          "--profile",
+          "lab",
+          "down",
+        ],
+      },
+      ...(task === "restart" ? startCalls : []),
+    ]);
+    expect(await exists(join(host.dir, "inventory/topology.json"))).toBe(true);
+  },
+);
+Then(
+  "startup waits for the complete lab before starting collection or reports {string} failure",
+  async ({ host }, failure: string) => {
+    expect(host.result.code === 0, host.result.out).toBe(failure === "none");
+    expect(await startupCalls(host)).toEqual(
+      failure === "lab" ? startCalls.slice(0, 1) : startCalls,
+    );
   },
 );
 When("the canonical deployment is generated twice", async ({ host }) => {

@@ -97,3 +97,22 @@ Feature: Generate and manage the declared containers from the host only
     When the canonical deployment is generated twice
     Then management probes its HTTP listener with the bundled bounded native client
     And the readiness deadline and container isolation remain unchanged
+
+  Scenario Outline: Start the local simulator with one command
+    Given recording startup executables with "<failure>" failure and Bun outside the shell path
+    When the local simulator startup target runs
+    Then startup waits for the complete lab before starting collection or reports "<failure>" failure
+    Examples:
+      | failure   |
+      | none      |
+      | lab       |
+      | collector |
+
+  Scenario Outline: Stop or restart the local simulator without deleting its state
+    Given recording startup executables with "none" failure and Bun outside the shell path
+    When the local simulator "<task>" target runs
+    Then collection stops before the lab and "<task>" preserves persistent state
+    Examples:
+      | task    |
+      | stop    |
+      | restart |

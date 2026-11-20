@@ -24,7 +24,7 @@ Implemented scenarios execute via `make acceptance`: Behave for Python contracts
 | [Retain only bounded recent observer records in memory](../../features/observer/current_memory.feature) | implemented | python | 20 |
 | [Serve shared volatile observer data through HTTP MCP and SSE](../../features/observer/current_observer_api.feature) | implemented | python | 12 |
 | [Share volatile source collection through a bounded Unix socket](../../features/observer/current_observer_service.feature) | implemented | python | 12 |
-| [Generate and manage the declared containers from the host only](../../features/operations/current_host_tools.feature) | implemented | host | 25 |
+| [Generate and manage the declared containers from the host only](../../features/operations/current_host_tools.feature) | implemented | host | 30 |
 | [Collect bounded container evidence without service-side Docker access](../../features/operations/current_log_collector.feature) | implemented | host | 7 |
 | [Validate isolated network event models and module exports](../../features/operations/current_network_event_models.feature) | implemented | host | 5 |
 | [Inject and reset each real lab fault through God MCP](../../features/operations/live_faults.feature) | external | live lab | 1 |
@@ -75,10 +75,10 @@ Implemented scenarios execute via `make acceptance`: Behave for Python contracts
 | [Read the declared configuration file tree for a node](../../features/visualization/configuration_browser.feature) | implemented | python | 16 |
 | [Publish bounded ordinary agent request activity](../../features/visualization/current_activity.feature) | implemented | python | 14 |
 | [Bounded and truthful node log pages](../../features/visualization/current_log_pages.feature) | implemented | python | 26 |
-| [Volatile network events panel](../../features/visualization/current_network_events.feature) | implemented | browser | 8 |
+| [Volatile network events panel](../../features/visualization/current_network_events.feature) | implemented | browser | 9 |
 | [Distinguish declared domains and live exact-prefix evidence](../../features/visualization/current_routing_layers.feature) | implemented | python | 17 |
 | [Bounded topology and node-log invalidation streams](../../features/visualization/current_streams.feature) | implemented | python | 6 |
-| [Current network workbench interactions](../../features/visualization/current_workbench.feature) | implemented | browser | 45 |
+| [Current network workbench interactions](../../features/visualization/current_workbench.feature) | implemented | browser | 46 |
 
 ## Present bounded live node observations without inferring routing health
 Source: [features/diagnostics/current_live_inspector.feature](../../features/diagnostics/current_live_inspector.feature) · runner: python
@@ -277,6 +277,8 @@ Source: [features/operations/current_host_tools.feature](../../features/operatio
 - L89: Counter-only and IGMP services cannot replace each other's active socket (1 case)
 - L92: Start the observer without registering its container group on the host (1 case)
 - L96: Readiness checks do not start a Python interpreter (1 case)
+- L101: Start the local simulator with one command (3 cases)
+- L111: Stop or restart the local simulator without deleting its state (2 cases)
 
 ## Collect bounded container evidence without service-side Docker access
 Source: [features/operations/current_log_collector.feature](../../features/operations/current_log_collector.feature) · runner: host
@@ -491,6 +493,7 @@ Source: [features/visualization/current_network_events.feature](../../features/v
 - L18: Conflicting record identities are rejected before rendering (1 case)
 - L21: Show which link endpoint is unavailable (1 case)
 - L24: A failed endpoint does not erase the healthy endpoint's rate (1 case)
+- L27: Show measured traffic history beside each interface (1 case)
 
 ## Distinguish declared domains and live exact-prefix evidence
 Source: [features/visualization/current_routing_layers.feature](../../features/visualization/current_routing_layers.feature) · runner: python
@@ -558,5 +561,6 @@ Source: [features/visualization/current_workbench.feature](../../features/visual
 - L121: A restored generation leaves the God toolbar usable (1 case)
 - L124: The diagram fills the workspace without a false splitter (1 case)
 - L127: Compact diagnostic windows leave more topology visible (1 case)
-- L132: Inspector identity and event evidence use compact typography and spacing (1 case)
-- L136: Compact node directory and evidence tabs keep touch access (1 case)
+- L133: Inspector identity and event evidence use compact typography and spacing (1 case)
+- L137: Compact node directory and evidence tabs keep touch access (1 case)
+- L140: Compact log controls leave more room for entries (1 case)

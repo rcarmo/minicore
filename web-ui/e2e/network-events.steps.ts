@@ -124,6 +124,80 @@ async function observerFixture(page: import("@playwright/test").Page) {
   });
 }
 Then(
+  "sliding unchanged routing windows and incomplete samples do not create activity spikes",
+  async () => {
+    const result = await run([
+      "bun",
+      "test",
+      "src/network-events-model.test.ts",
+      "--test-name-pattern",
+      "routing activity excludes baselines",
+    ]);
+    expect(result.code, result.text).toBe(0);
+    expect(result.text).toContain("1 pass");
+  },
+);
+Then(
+  "the routing chart stays flat across sliding unchanged windows and plots a real peer change",
+  async ({ page }) => {
+    const fixture = await observerFixture(page);
+    let first = 123;
+    let changed = false;
+    let requests = 0;
+    await page.route("**/api/v1/observer?*", (route) => {
+      requests++;
+      const result = fixture("node:p1:routing", { peers: [], routes: [] });
+      const [base] = result.records;
+      result.records = [0, 1, 2].map((index) => ({
+        ...base!,
+        acquired_monotonic: first + index * 5,
+        sampled_at: new Date((first + index * 5) * 1000).toISOString(),
+        remaining_ms: 45000 + index * 5000,
+        data: {
+          peers: [
+            {
+              protocol: "bgp",
+              address: "10.254.0.2",
+              state: changed && index === 2 ? "Idle" : "Established",
+            },
+          ],
+          routes: [],
+        },
+      }));
+      return route.fulfill({ json: result });
+    });
+    await page.goto("/#p1");
+    await page
+      .getByRole("button", { name: "Network events", exact: true })
+      .click();
+    const panel = page.getByRole("region", { name: "Network events panel" });
+    await expect(
+      panel.getByText("Peer Established", { exact: true }),
+    ).toBeVisible();
+    const chart = panel
+      .getByLabel("Recent observer activity sparkline")
+      .locator("path")
+      .last();
+    const flat = Array.from(
+      { length: 12 },
+      (_, index) =>
+        `${index === 0 ? "M" : "L"}${((index / 11) * 180).toFixed(1)},38.0`,
+    ).join(" ");
+    await expect(chart).toHaveAttribute("d", flat);
+    for (let index = 0; index < 2; index++) {
+      const before = requests;
+      first += 5;
+      await expect.poll(() => requests).toBeGreaterThan(before);
+      await expect(chart).toHaveAttribute("d", flat);
+    }
+    changed = true;
+    await expect(
+      panel.getByText("Peer state changed", { exact: true }),
+    ).toBeVisible();
+    await expect(chart).not.toHaveAttribute("d", flat);
+  },
+);
+Then(
   "interface charts retain individual rate samples and distinguish missing data from zero",
   async () => {
     const result = await run([
@@ -134,7 +208,9 @@ Then(
       "interface traffic history",
     ]);
     expect(result.code, result.text).toBe(0);
-    expect(result.text).toContain("(pass) interface traffic history");
+    expect(result.text).toContain(
+      "interface traffic history retains individual samples, zeros and gaps",
+    );
   },
 );
 Then(
@@ -174,19 +250,35 @@ Then(
       return route.fulfill({ json: result });
     });
     await page.goto("/#p1");
-    await page.getByRole("button", { name: "Network events", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Network events", exact: true })
+      .click();
     const panel = page.getByRole("region", { name: "Network events panel" });
-    await panel.getByRole("button", { name: "Interfaces", exact: true }).click();
-    const table = panel.getByRole("table", { name: "Interface rates and traffic history" });
+    await panel
+      .getByRole("button", { name: "Interfaces", exact: true })
+      .click();
+    const table = panel.getByRole("table", {
+      name: "Interface rates and traffic history",
+    });
     const row = table.getByRole("row").filter({ hasText: "p1 / to-p2" });
-    await expect(row.getByRole("cell", { name: "0.0", exact: true })).toHaveCount(4);
-    const chart = row.getByRole("img", { name: /to-p2.*60 seconds.*TX peak 5/ });
+    await expect(
+      row.getByRole("cell", { name: "0.0", exact: true }),
+    ).toHaveCount(4);
+    const chart = row.getByRole("img", {
+      name: /to-p2.*60 seconds.*TX peak 5/,
+    });
     await expect(chart).toBeVisible();
     await expect(chart.locator(".traffic-tx")).not.toHaveAttribute("d", "");
     await expect(chart.locator(".traffic-rx")).not.toHaveAttribute("d", "");
-    await expect(table.getByRole("row").filter({ hasText: "p1 / to-pe1" })
-      .getByRole("img", { name: /to-pe1.*TX peak 10/ })).toBeVisible();
-    await expect(panel.getByLabel("Recent observer activity sparkline")).toHaveCount(0);
+    await expect(
+      table
+        .getByRole("row")
+        .filter({ hasText: "p1 / to-pe1" })
+        .getByRole("img", { name: /to-pe1.*TX peak 10/ }),
+    ).toBeVisible();
+    await expect(
+      panel.getByLabel("Recent observer activity sparkline"),
+    ).toHaveCount(0);
   },
 );
 

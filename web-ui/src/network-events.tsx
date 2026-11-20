@@ -6,27 +6,21 @@ import {
   validateObserverEnvelope,
   type NetworkScope,
   type ObserverKind,
+  type TrafficPoint,
   type ValidatedEnvelope,
 } from "./network-events-model";
 
-function Sparkline({
-  model,
-}: {
-  model: ReturnType<typeof buildNetworkEventsModel>;
-}) {
+function EventSparkline({ counts }: { counts: number[] }) {
   const width = 180;
   const height = 40;
-  const points = model.sparkline.points;
-  const max = Math.max(1, model.sparkline.max);
-  const path = (secondary = false) =>
-    points
-      .map((point, index) => {
-        const value = secondary ? (point.secondary ?? 0) : point.primary;
-        const x = (index / Math.max(1, points.length - 1)) * width;
-        const y = height - (value / max) * (height - 4) - 2;
-        return `${index === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
-      })
-      .join(" ");
+  const max = Math.max(1, ...counts);
+  const path = counts
+    .map((value, index) => {
+      const x = (index / (counts.length - 1)) * width;
+      const y = height - (value / max) * (height - 4) - 2;
+      return `${index === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
@@ -39,13 +33,63 @@ function Sparkline({
         d={`M0,${height - 2} L${width},${height - 2}`}
         stroke="rgba(255,255,255,.1)"
       />
-      {!!points.length && (
-        <path d={path(false)} fill="none" stroke="#7dd3fc" stroke-width="2" />
-      )}
-      {!!points.some((point) => point.secondary) && (
-        <path d={path(true)} fill="none" stroke="#34d399" stroke-width="2" />
-      )}
+      <path d={path} fill="none" stroke="#7dd3fc" stroke-width="2" />
     </svg>
+  );
+}
+
+function InterfaceTraffic({
+  label,
+  history,
+}: {
+  label: string;
+  history: TrafficPoint[];
+}) {
+  const tx = history.flatMap((p) =>
+    p.txPackets === null ? [] : [p.txPackets],
+  );
+  const rx = history.flatMap((p) =>
+    p.rxPackets === null ? [] : [p.rxPackets],
+  );
+  if (!tx.length && !rx.length)
+    return <span class="event-meta">No samples</span>;
+  const txPeak = Math.max(0, ...tx);
+  const rxPeak = Math.max(0, ...rx);
+  const scale = Math.max(1, Math.ceil(Math.max(txPeak, rxPeak)));
+  const description = `${label}, last 60 seconds: TX peak ${txPeak.toFixed(1)}, RX peak ${rxPeak.toFixed(1)} packets per second`;
+  const path = (direction: "txPackets" | "rxPackets") => {
+    let priorAge: number | undefined;
+    return history
+      .map((point) => {
+        const value = point[direction];
+        if (value === null) {
+          priorAge = undefined;
+          return "";
+        }
+        const x = 1 + (1 - point.ageSeconds / 60) * 118;
+        const y = 21 - (value / scale) * 19;
+        const position = `${x.toFixed(1)},${y.toFixed(1)}`;
+        const segment =
+          priorAge !== undefined && priorAge - point.ageSeconds <= 3
+            ? `L${position}`
+            : `M${position}h0.1`;
+        priorAge = point.ageSeconds;
+        return segment;
+      })
+      .join(" ");
+  };
+  return (
+    <div class="traffic-history">
+      <svg viewBox="0 0 120 24" role="img" aria-label={description}>
+        <title>{description}</title>
+        <path class="traffic-axis" d="M1 21H119" />
+        <path class="traffic-tx" d={path("txPackets")} />
+        <path class="traffic-rx" d={path("rxPackets")} />
+      </svg>
+      <span class="event-meta" aria-hidden="true">
+        0–{scale}
+      </span>
+    </div>
   );
 }
 
@@ -411,34 +455,51 @@ export function NetworkEvents({
                 ))}
               </p>
             )}
-          <Sparkline model={model} />
+          {kind !== "interfaces" && (
+            <EventSparkline counts={model.eventCounts} />
+          )}
           {model.rates.length > 0 && (
-            <table class="event-rates">
-              <thead>
-                <tr>
-                  <th>Interface</th>
-                  <th>TX pkt/s</th>
-                  <th>RX pkt/s</th>
-                  <th>TX B/s</th>
-                  <th>RX B/s</th>
-                </tr>
-              </thead>
-              <tbody>
-                {model.rates.map((rate) => (
+            <div class="event-rates-scroll">
+              <table
+                class="event-rates"
+                aria-label="Interface rates and traffic history"
+              >
+                <thead>
                   <tr>
-                    <th>{rate.label}</th>
-                    {[
-                      rate.txPackets,
-                      rate.rxPackets,
-                      rate.txBytes,
-                      rate.rxBytes,
-                    ].map((v) => (
-                      <td>{v === null ? "—" : v.toFixed(1)}</td>
-                    ))}
+                    <th>Interface</th>
+                    <th>TX pkt/s</th>
+                    <th>RX pkt/s</th>
+                    <th>TX B/s</th>
+                    <th>RX B/s</th>
+                    <th>
+                      Last 60s · pkt/s{" "}
+                      <span class="event-meta">(TX solid, RX dashed)</span>
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {model.rates.map((rate) => (
+                    <tr key={rate.label}>
+                      <th scope="row">{rate.label}</th>
+                      {[
+                        rate.txPackets,
+                        rate.rxPackets,
+                        rate.txBytes,
+                        rate.rxBytes,
+                      ].map((v, index) => (
+                        <td key={index}>{v === null ? "—" : v.toFixed(1)}</td>
+                      ))}
+                      <td>
+                        <InterfaceTraffic
+                          label={rate.label}
+                          history={rate.history}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 

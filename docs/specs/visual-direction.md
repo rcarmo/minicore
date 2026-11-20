@@ -24,9 +24,9 @@ Decorative depth must never make links harder to trace or suggest topology that 
 Follow Fluent 2's [spacing scale](https://fluent2.microsoft.design/layout) and
 [web typography ramp](https://fluent2.microsoft.design/typography) for the
 workbench chrome, while retaining Minicore's network state palette. On desktop
-use a single 48 px toolbar with 32 px controls, 8 px panel padding, and compact
-title bars. Narrow screens and coarse pointers retain 44 px main toolbar
-targets. Window title bar controls are 24 px on desktop and 32 px for touch
+use a single 44 px toolbar with 28 px controls, 8 px panel padding, and compact
+title bars. Narrow screens and coarse pointers use 32 px toolbar and diagnostic
+controls. Window title bar controls are 24 px on desktop and 32 px for touch
 and narrow screens, so window chrome stays compact. Diagnostic windows scroll
 internally; minimizing one leaves only its title bar and does not resize the
 topology.

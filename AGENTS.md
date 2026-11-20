@@ -40,6 +40,8 @@ Keep implemented, executable behaviour separate from planned acceptance specific
 - The mandatory Gherkin-first sequence above governs every behaviour change; `docs/development/methodology.md` must stay aligned with it.
 - Use the test layer closest to the behaviour and add boundary integration coverage.
 - Front-end work uses Preact and Three.js, with all dependency, type, lint, test, build, and Playwright tasks managed through Bun.
+- Use Bun only for JavaScript and TypeScript execution; do not install or invoke Node.js, npm, npx, or yarn. Use `bun run --bun` and `bun x --bun` for tools with Node shebangs. Set `PW_DISABLE_TS_ESM=1` for Playwright so Bun handles TypeScript instead of Playwright's Node-specific loader.
+- Provide Makefile targets for recurring development and local operation tasks.
 - One Python service/container hosts generated assets, topology HTTP/SSE, and uMCP through separated internal modules.
 - A defect fix should include a failing regression test first when reproducible.
 - Completion requires traceable evidence, relevant failure-path coverage, documentation, and passing canonical checks.

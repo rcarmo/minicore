@@ -17,3 +17,6 @@ Feature: Validate isolated network event models and module exports
   Scenario: Incomplete observations cannot generate a withdrawal or a traffic rate
     Then truncated failed and reset-counter samples suppress unsafe comparisons
 
+  Scenario: Routing snapshots are not counted as routing changes
+    Then sliding unchanged routing windows and incomplete samples do not create activity spikes
+

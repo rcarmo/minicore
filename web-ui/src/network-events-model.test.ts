@@ -73,6 +73,83 @@ function envelope(
 }
 
 describe("network events model", () => {
+  test("routing activity excludes baselines across sliding windows and incomplete samples", () => {
+    const scope = { type: "node", id: "p1" } as const;
+    const window = (first: number, changed = false) =>
+      validateObserverEnvelope(
+        envelope(
+          "routing",
+          scope,
+          [first, first + 5, first + 10].map((acquired, index) => ({
+            scope: "node:p1:routing",
+            incarnation: "inc-1",
+            acquired_monotonic: acquired,
+            sampled_at: new Date(acquired * 1000).toISOString(),
+            remaining_ms: 50000 + index * 5000,
+            data: {
+              peers: [
+                {
+                  protocol: "bgp",
+                  address: "10.0.0.2",
+                  state: changed && index === 2 ? "Idle" : "Established",
+                },
+              ],
+              routes: [
+                {
+                  prefix: "10.200.8.0/29",
+                  source: "bgp",
+                  nexthops: ["10.0.0.2"],
+                },
+              ],
+            },
+          })),
+        ),
+        snapshot,
+        scope,
+        "routing",
+        1000,
+        1000,
+        1000,
+      );
+    const model = (
+      current: ReturnType<typeof window>,
+      previous: ReturnType<typeof window> | null = null,
+    ) =>
+      buildNetworkEventsModel({
+        snapshot,
+        scope,
+        kind: "routing",
+        current,
+        previous,
+        now: 1000,
+      });
+    const initial = window(1000);
+    expect(model(initial).rows.map((row) => row.event)).toEqual([
+      "Route present",
+      "Peer Established",
+    ]);
+    expect(model(initial).eventCounts.reduce((a, b) => a + b, 0)).toBe(0);
+    const sliding = window(1005);
+    expect(model(sliding, initial).eventCounts.reduce((a, b) => a + b, 0)).toBe(
+      0,
+    );
+    for (const current of [
+      { ...sliding, truncated: true },
+      { ...sliding, sourceHealth: "collection_timeout" as const },
+    ])
+      expect(
+        model(current, initial).eventCounts.reduce((a, b) => a + b, 0),
+      ).toBe(0);
+    const changed = window(1010, true);
+    expect(
+      model(changed).rows.some((r) => r.event === "Peer state changed"),
+    ).toBe(true);
+    expect(model(changed).eventCounts.reduce((a, b) => a + b, 0)).toBe(1);
+    expect(model(changed, changed).eventCounts).toEqual(
+      model(changed).eventCounts,
+    );
+  });
+
   test("conservatively subtracts fetch duration and expires records by monotonic age", () => {
     const validated = validateObserverEnvelope(
       envelope("interfaces", { type: "node", id: "p1" }, [
@@ -451,7 +528,7 @@ test("interface traffic history retains individual samples, zeros and gaps", () 
     ...recordBase,
     scope: "node:p1:interfaces",
     acquired_monotonic: at / 1000,
-    remaining_ms: 60000 - (10900 - at),
+    remaining_ms: 60000 - (11800 - at),
     data: {
       interfaces: [
         {
@@ -485,8 +562,8 @@ test("interface traffic history retains individual samples, zeros and gaps", () 
         snapshot,
         scope,
         "interfaces",
-        10900,
-        10900,
+        11800,
+        11800,
       ),
       previous: null,
       now,
@@ -494,12 +571,19 @@ test("interface traffic history retains individual samples, zeros and gaps", () 
   const initial = model(first, 10100);
   expect(initial.rates[0]?.txPackets).toBe(0);
   expect(initial.rates[0]?.history.map((point) => point.txPackets)).toEqual([
-    null, 10, 30, 0,
+    null,
+    10,
+    30,
+    0,
   ]);
   const refreshed = model([...first, makeSample(11800, 450)], 11800);
   expect(refreshed.rates[0]?.txPackets).toBeCloseTo(100);
   expect(refreshed.rates[0]?.history.map((point) => point.txPackets)).toEqual([
-    null, 10, 30, 0, null,
+    null,
+    10,
+    30,
+    0,
+    null,
   ]);
 });
 

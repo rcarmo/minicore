@@ -9,7 +9,7 @@ The header *Network events* button opens one rounded movable and minimisable flo
 The panel shows:
 
 1. Scope, tab, source health and age.
-2. A 60-second sparkline. Interfaces use directional packets per second and bytes per second from matching samples. Routing and IGMP use events per time bucket.
+2. Interfaces show current packets and bytes per second beside a per-interface, 60-second traffic chart. The chart plots individual counter-rate samples (normally one per second) as solid TX and dashed RX lines in packets per second. It labels the per-row scale and does not plot interface-state events as traffic; missing samples and intervals longer than three seconds are gaps, not zeros. Routing and IGMP retain the event-count sparkline.
 3. A newest-first bounded event list with time, source or interface, event and short detail.
 4. *Pause* and *Follow* controls for scrolling only. Collection and expiry continue while paused.
 
@@ -18,6 +18,7 @@ Selecting an event source highlights the corresponding node and, where relevant,
 ## Event rules
 
 - Fresh state is shown as `Peer Established`, `Interface UP` or `Route present`. Initial state is distinct from later change.
+- The routing activity chart counts only changes measured between comparable complete samples, not baseline peer or route snapshots. Advancing the retention window, rebaselining after a gap, or receiving an incomplete sample must not create activity spikes.
 - Routing changes include `Peer state changed`, `Route added`, `Route withdrawn` and `Next hop changed`. They are derived only from adjacent complete samples in the same observer epoch, generation and source incarnation.
 - Interface rows show current state, RX and TX counters and rates. Counter decrease is `Counters reset`.
 - IGMP rows show `Query`, `Report`, `Leave` or `IGMPv3 report` with group and interface. Expanded rows show bounded v3 detail.

@@ -128,6 +128,7 @@ Feature: Current network workbench interactions
     When the workbench opens on a short desktop viewport
     Then the inspector, routing and event windows fit without oversized chrome
     And touch-sized toolbar controls do not enlarge window title bars
+    And secondary diagnostic controls stay compact on touch screens
 
   Scenario: Inspector identity and event evidence use compact typography and spacing
     Then a core router name and role share one line without heavy metadata

@@ -27,3 +27,6 @@ Feature: Volatile network events panel
   Scenario: Show measured traffic history beside each interface
     Then each interface row has its own TX and RX chart beside the current rates
     And interface charts retain individual rate samples and distinguish missing data from zero
+
+  Scenario: Routing activity stays flat while unchanged snapshots expire
+    Then the routing chart stays flat across sliding unchanged windows and plots a real peer change

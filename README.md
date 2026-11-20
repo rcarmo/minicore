@@ -33,6 +33,8 @@ make ssh-provision lab-up up watch-logs
 
 Open **http://127.0.0.1:19000**. MCP uses **http://127.0.0.1:19000/mcp**. The default private profile grants anonymous Operator access on loopback. God always requires its own credential. Use `MINICORE_EXPOSURE_PROFILE=authenticated make up` to require authentication for all access. Remote access requires TLS and source filtering; never publish the unauthenticated private profile.
 
+After initial provisioning, use `make start` to start all nine containers, wait for readiness, and start log collection. Use `make stop`, `make restart`, or `make rebuild` for recurring operations; `make help` lists the common targets. Rebuild checks and rebuilds management using current web assets before starting. Credentials and fault journals are preserved. Restore active faults before stopping or restarting. Observer and targeted-fault services remain opt-in; retain their socket environment overrides when starting or rebuilding.
+
 Enable targeted God browser controls with:
 
 ```sh

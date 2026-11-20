@@ -145,21 +145,17 @@ export interface DerivedRow {
   expanded?: string;
 }
 
-export interface SparklinePoint {
-  x: number;
-  primary: number;
-  secondary?: number;
+export interface TrafficPoint {
+  ageSeconds: number;
+  txPackets: number | null;
+  rxPackets: number | null;
 }
 
 export interface NetworkEventsModel {
   status: string;
   sourceHealth: SourceHealth | "unknown";
   rows: DerivedRow[];
-  sparkline: {
-    mode: "events" | "traffic";
-    points: SparklinePoint[];
-    max: number;
-  };
+  eventCounts: number[];
   clipped: boolean;
   ageMs: number | null;
   summary: string;
@@ -169,6 +165,7 @@ export interface NetworkEventsModel {
     rxPackets: number | null;
     txBytes: number | null;
     rxBytes: number | null;
+    history: TrafficPoint[];
   }[];
 }
 
@@ -588,11 +585,8 @@ export function buildNetworkEventsModel({
     .slice(-128);
   const rows: DerivedRow[] = [],
     rates: NetworkEventsModel["rates"] = [];
-  const points = Array.from({ length: 12 }, (_, x) => ({
-    x,
-    primary: 0,
-    secondary: 0,
-  }));
+  const eventCounts = Array<number>(12).fill(0);
+  const traffic = new Map<string, TrafficPoint[]>();
   const latest = samples.at(-1);
   const latestBySource = new Map(samples.map((r) => [r.incarnation, r]));
   const priorBySource = new Map<string, ValidatedRecord>();
@@ -607,6 +601,7 @@ export function buildNetworkEventsModel({
     nodeId?: string,
     iface?: string,
     expanded?: string,
+    activity = true,
   ) => {
     rows.push({
       id: `${r.incarnation}:${r.acquiredMonotonic}:${identity}`,
@@ -620,7 +615,7 @@ export function buildNetworkEventsModel({
       interface: iface,
       expanded,
     });
-    points[bucket(r)].primary++;
+    if (kind !== "interfaces" && activity) eventCounts[bucket(r)]++;
   };
   for (let index = 0; index < samples.length; index++) {
     const r = samples[index],
@@ -650,6 +645,7 @@ export function buildNetworkEventsModel({
             undefined,
             undefined,
             prior ? `Previous state: ${prior.state}` : undefined,
+            !!before,
           );
       }
       const routes = new Map(
@@ -680,6 +676,7 @@ export function buildNetworkEventsModel({
             prior
               ? `Previous next hops: ${prior.nexthops.join(", ") || "direct"}`
               : undefined,
+            !!before,
           );
       }
       if (before)
@@ -701,9 +698,6 @@ export function buildNetworkEventsModel({
               ]),
             )
           : new Map<string, InterfaceCounters>();
-      let totalTx = 0,
-        totalRx = 0,
-        validRate = false;
       for (const i of r.data.interfaces) {
         const id = `${i.node_id ?? ""}:${i.interface}`,
           prior = before.get(id),
@@ -736,11 +730,14 @@ export function buildNetworkEventsModel({
           ok = !!prior && !reset && dt > 0;
         const tx = ok ? (i.tx_packets - prior.tx_packets) / dt : null,
           rx = ok ? (i.rx_packets - prior.rx_packets) / dt : null;
-        if (ok) {
-          validRate = true;
-          totalTx += tx!;
-          totalRx += rx!;
-        }
+        const key = `${r.incarnation}:${id}`;
+        const history = traffic.get(key) ?? [];
+        history.push({
+          ageSeconds: Math.max(0, (now + 60000 - r.expiresAt) / 1000),
+          txPackets: dt <= 3 ? tx : null,
+          rxPackets: dt <= 3 ? rx : null,
+        });
+        traffic.set(key, history);
         if (r === latestBySource.get(r.incarnation))
           rates.push({
             label: node ? `${node} / ${i.interface}` : i.interface,
@@ -748,14 +745,8 @@ export function buildNetworkEventsModel({
             rxPackets: rx,
             txBytes: ok ? (i.tx_bytes - prior.tx_bytes) / dt : null,
             rxBytes: ok ? (i.rx_bytes - prior.rx_bytes) / dt : null,
+            history,
           });
-      }
-      // Per-node totals include all TX/RX directions. For a link, each sender is
-      // counted once; receiver copies are deliberately excluded from chart totals.
-      if (validRate) {
-        const b = bucket(r);
-        points[b].primary = scope.type === "link" ? totalTx : totalTx + totalRx;
-        points[b].secondary = 0;
       }
     } else {
       const p = r.data,
@@ -802,10 +793,6 @@ export function buildNetworkEventsModel({
     summary: `${label} · ${status}`,
     ageMs: latest ? Math.max(0, 60000 - (latest.expiresAt - now)) : null,
     rates,
-    sparkline: {
-      mode: kind === "interfaces" ? "traffic" : "events",
-      points,
-      max: Math.max(1, ...points.map((p) => p.primary)),
-    },
+    eventCounts,
   };
 }

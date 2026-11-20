@@ -1435,7 +1435,7 @@ Then(
       await page.setViewportSize({ width, height: 1000 });
       const row = await header.boundingBox();
       const compact = width === 1600;
-      expect(row!.height).toBeLessThanOrEqual(compact ? 48 : 64);
+      expect(row!.height).toBeLessThanOrEqual(compact ? 44 : 48);
       const controls = [
         header
           .getByRole("checkbox", { name: "God mode", exact: true })
@@ -1447,9 +1447,9 @@ Then(
       const boxes = [];
       for (const control of controls) {
         const box = (await control.boundingBox())!;
-        expect(box.height).toBeGreaterThanOrEqual(compact ? 32 : 44);
-        expect(box.height).toBeLessThanOrEqual(compact ? 32 : 44);
-        expect(box.width).toBeGreaterThanOrEqual(compact ? 32 : 44);
+        expect(box.height).toBeGreaterThanOrEqual(compact ? 28 : 32);
+        expect(box.height).toBeLessThanOrEqual(compact ? 28 : 32);
+        expect(box.width).toBeGreaterThanOrEqual(compact ? 28 : 32);
         boxes.push(box);
       }
       expect(
@@ -1537,9 +1537,7 @@ Then(
         name: "Network events",
         exact: true,
       });
-      expect(
-        (await toolbarButton.boundingBox())!.height,
-      ).toBeGreaterThanOrEqual(44);
+      expect((await toolbarButton.boundingBox())!.height).toBe(32);
       for (const name of ["Node inspector", "Network events"]) {
         if (name === "Network events") await toolbarButton.tap();
         const minimize = touch.getByRole("button", {
@@ -1554,6 +1552,44 @@ Then(
         await expect(
           touch.getByRole("button", { name: `Restore ${name}` }),
         ).toBeVisible();
+      }
+    } finally {
+      await touch.close();
+    }
+  },
+);
+
+Then(
+  "secondary diagnostic controls stay compact on touch screens",
+  async ({ browser, baseURL }) => {
+    const touch = await browser!.newPage({
+      hasTouch: true,
+      viewport: { width: 1252, height: 720 },
+    });
+    try {
+      await touch.goto(new URL("/#p1", baseURL).href);
+      await touch.getByRole("button", { name: "BGP", exact: true }).tap();
+      const routing = touch.getByRole("region", {
+        name: "Routing diagnostics",
+      });
+      await expect(routing).toBeVisible();
+      await touch
+        .getByRole("button", { name: "Network events", exact: true })
+        .tap();
+      const events = touch.getByRole("region", {
+        name: "Network events panel",
+      });
+      await expect(events).toBeVisible();
+      for (const section of [routing.locator(".floating-body"), events]) {
+        const heights = await section
+          .locator("button:visible, select:visible")
+          .evaluateAll((controls) =>
+            controls.map((el) => el.getBoundingClientRect().height),
+          );
+        expect(heights.length).toBeGreaterThan(0);
+        expect(heights.every((height) => height >= 24 && height <= 32)).toBe(
+          true,
+        );
       }
     } finally {
       await touch.close();
@@ -1621,8 +1657,8 @@ Then(
       expect(second.y).toBe(first.y);
       expect(second.x).toBeGreaterThan(first.x);
       expect(third.x).toBe(first.x);
-      expect(first.height).toBeGreaterThanOrEqual(44);
-      expect(third.y - first.y).toBeLessThanOrEqual(48);
+      expect(first.height).toBeGreaterThanOrEqual(32);
+      expect(third.y - first.y).toBeLessThanOrEqual(40);
       await inspector.getByRole("button", { name: "P1", exact: true }).tap();
       await expect(
         inspector.getByRole("heading", { name: "P1" }),
@@ -1640,7 +1676,7 @@ Then(
       );
       expect(new Set(positions.map(({ y }) => y)).size).toBe(1);
       expect(
-        positions.every(({ height, width }) => height >= 44 && width >= 44),
+        positions.every(({ height, width }) => height === 32 && width >= 32),
       ).toBe(true);
       expect(await tabs.evaluate((el) => el.scrollWidth)).toBeLessThanOrEqual(
         (await tabs.boundingBox())!.width,
@@ -1673,7 +1709,9 @@ Then(
         logs.getByRole("button", { name: "Older" }),
         logs.getByRole("combobox", { name: "Severity" }),
       ];
-      const boxes = await Promise.all(controls.map((control) => control.boundingBox()));
+      const boxes = await Promise.all(
+        controls.map((control) => control.boundingBox()),
+      );
       for (const box of boxes) {
         expect(box!.height).toBeGreaterThanOrEqual(24);
         expect(box!.height).toBeLessThanOrEqual(28);

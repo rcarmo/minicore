@@ -21,6 +21,22 @@ Provisioning needs sudo for UID/GID 10001 files. Management is read-only, non-ro
 
 UI: `http://127.0.0.1:19000`; MCP: `/mcp`. A full lab runs nine services. `make status` reports container state. `make live-routes` and verified God reset check routing. `make observe` refreshes host presence once.
 
+### Recurring tasks
+
+After initial provisioning:
+
+```sh
+make start       # all nine containers, readiness wait, then log collection
+make status      # inventoried container states
+make stop        # stop collection before containers; keep keys and journals
+make restart     # sequential stop and start, also safe with parallel Make
+make rebuild     # canonical checks, management image rebuild, then start
+make bdd-events  # rebuild web assets and run network events regressions
+make help
+```
+
+Restore active faults before stopping or restarting. These targets do not provision credentials, reset faults, or enable optional host fault/observer services. Keep the intended socket and exposure-profile environment overrides on `start`, `restart`, and `rebuild`, just as on `up`. Existing images are reused by `start`; use `rebuild` after source changes. Make includes the standard `~/.bun/bin` location in PATH and runs JavaScript tools with Bun, not Node.js. Playwright's Node-specific TypeScript loader is disabled so Bun loads TypeScript directly.
+
 ## Management readiness
 
 Docker probes `/healthz` using the image's bundled BusyBox `wget`, with proxy use disabled, a two-second network timeout and a three-second Docker deadline. It checks the actual listener every ten seconds; HTTP errors, connection failures and stalled responses fail the probe. No Python interpreter is started for each check.
